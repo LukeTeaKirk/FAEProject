@@ -27,6 +27,12 @@ Open http://127.0.0.1:5001 in a browser. Use headphones. No account, camera, mic
   - **Turn your head** slider (or Q and E keys): the room stays still and every voice moves relative to you, which is how real hearing resolves front from back.
   - **8D orbit** button: the selected voice circles around you once every 8 seconds.
   - 12 seats at 30° steps, plus a Surround preset (left, front, right, behind).
+- **Simple by default, hands-on**:
+  - Play and the *Normal call / Around the table* switch sit next to the table; everything technical is under a collapsed "More controls".
+  - **Drag** a person to any spot on the table (15° steps) and hear them move; **drag "You"** to turn your head (double-click to face front). Keyboard control still works.
+  - **Drop an audio file** (WAV, MP3, M4A) onto a person or their row to give them that voice. Live play accepts any length.
+  - Speaking voices **pulse** and send a **beam** toward you, and live **captions** say where each voice is in plain words ("behind you, left"), following your head turns.
+  - **Tune for my ears** (30 seconds): short sounds from 8 directions with each strength (Subtle, Clear, Dramatic); you click where each came from and the best setting for you is selected.
 - **Fair comparison**: mono and spatial are loudness-matched, so loudness differences cannot bias a comparison. Mono has identical left and right signals (checked: 0 dB difference; mono and spatial average power within 0.2 dB).
 - **Usability**: seating presets, ← → to move the selected person, headphone check, saved settings, and a collapsed "render a WAV" section.
 - **Listening test** (new page): three voices speak at once, each saying "Name, go to colour number". The volunteer follows one named voice and reports colour and number. 2 practice and 12 counted trials (6 mono, 6 spatial, blind, loudness-matched). Results stay in the browser and export as CSV.

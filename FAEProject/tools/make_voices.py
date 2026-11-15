@@ -97,4 +97,4 @@ if __name__ == "__main__":
     (OUT / "manifest.json").write_text(json.dumps({
         "engine": engine,
         "people": {k: {"name": v[0], "voice": v[1] if _kokoro is not None else v[3]} for k, v in VOICES.items()},
-        "colors": COLORS, "numbers": list(NUMBERS), "crm_rate": 24000, "chat_rate": 48000}, indent=1))
+        "chat": CHAT, "colors": COLORS, "numbers": list(NUMBERS), "crm_rate": 24000, "chat_rate": 48000}, indent=1))

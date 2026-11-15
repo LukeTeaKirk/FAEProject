@@ -16,6 +16,37 @@ const Live = (() => {
   let ctx = null, graph = null, playing = false, raf = 0, timer = 0, monoComp = 1, fx = 'enhanced', head = 0;
   const orbit = { on: false, id: null, a0: 0, t0: 0, angle: 0, raf: 0 };
   const cache = new Map();
+  // Use the device's own sample rate. Forcing 48 kHz can silence Safari on some Bluetooth headphones.
+  const newContext = () => new (window.AudioContext || window.webkitAudioContext)();
+  const sleep = ms => new Promise(r => setTimeout(r, ms));
+  // Two ways to reach the speakers. 'direct' is the browser's standard output. 'element' sends the sound through a
+  // normal <audio> element instead, which works in some Safari setups where the standard output stays silent.
+  let outputMode = (() => { try { return localStorage.getItem('roundtable.output') === 'element' ? 'element' : 'direct'; } catch (e) { return 'direct'; } })();
+  let sinkDest = null;
+  const outNode = () => outputMode === 'element' ? sinkDest : ctx.destination;
+  // Must run directly inside a click handler, so the browser allows the <audio> element to play.
+  function armSink() {
+    if (outputMode !== 'element' || !ctx) return;
+    if (!sinkDest) sinkDest = ctx.createMediaStreamDestination();
+    const a = $('#sink'); if (a.srcObject !== sinkDest.stream) a.srcObject = sinkDest.stream;
+    a.muted = false; a.volume = 1;
+    const p = a.play(); if (p && p.catch) p.catch(e => report('sink-play-failed', { error: e.name + ': ' + e.message }));
+  }
+  // A few facts about this browser's audio, sent only to this computer's own server log, to help fix sound problems.
+  function report(event, extra = {}) {
+    try {
+      fetch('/api/diag', { method: 'POST', headers: { 'content-type': 'application/json' }, keepalive: true, body: JSON.stringify({
+        event, ua: navigator.userAgent, state: ctx && ctx.state, rate: ctx && ctx.sampleRate, outputMode,
+        baseLatency: ctx && ctx.baseLatency, outputLatency: ctx && ctx.outputLatency, peak: graph && graph.peak, ...extra }) }).catch(() => {});
+    } catch (e) {}
+  }
+  addEventListener('error', e => report('js-error', { message: e.message, file: (e.filename || '').split('/').pop(), line: e.lineno }));
+  addEventListener('unhandledrejection', e => report('js-rejection', { message: String(e.reason && (e.reason.message || e.reason)) }));
+  async function ensureRunning() {
+    if (!ctx) ctx = newContext();
+    if (ctx.state !== 'running') await Promise.race([ctx.resume(), sleep(1500)]);
+    return ctx.state === 'running';
+  }
   const $ = s => document.querySelector(s);
   const dB = v => 20 * Math.log10(Math.max(v, 1e-6));
   const mixGain = p => p.muted ? 0 : p.volume * (focusId ? (focusId === p.id ? 1.8 : .55) : 1);
@@ -133,6 +164,11 @@ const Live = (() => {
     });
   }
 
+  // Keep the plain-words directions in the captions ("behind you, left") in step with the head and the seats.
+  function refreshDirs() {
+    people.forEach(p => { const d = document.querySelector(`.cap[data-id="${p.id}"] .dir`), w = dirWord(angleOf(p) - head); if (d && d.textContent !== w) d.textContent = w; });
+  }
+
   function setHead(v) {
     head = Math.max(-180, Math.min(180, Number(v) || 0));
     const slider = $('#head-turn'); if (slider) slider.value = head;
@@ -140,6 +176,7 @@ const Live = (() => {
     const icon = document.querySelector('.listener'); if (icon) icon.style.transform = `rotate(${head}deg)`;
     if (ctx) orient(ctx, true);
     applyParams();
+    refreshDirs();
   }
 
   // "8D" demo: the selected voice circles around the listener once every 8 seconds.
@@ -158,7 +195,7 @@ const Live = (() => {
         orbit.raf = requestAnimationFrame(step);
       };
       step();
-      status(`Orbit: ${me.name} circles around you. Listen for the voice passing in front, to the sides and behind you.`);
+      status(`${me.name} is circling around you. Listen for the voice passing in front, at the sides and behind you.`);
     } else { if (dot) dot.hidden = true; applyParams(); }
   }
 
@@ -181,21 +218,36 @@ const Live = (() => {
   const keyOf = () => JSON.stringify([spatial, source, fx, [...files].map(([k, f]) => k + f.name + f.size)]);
 
   async function start() {
-    if (!ctx) ctx = new AudioContext({ sampleRate: RATE });
-    await ctx.resume(); stop(true);
+    if (!ctx) ctx = newContext();
+    armSink();
+    if (!(await ensureRunning())) { status('Your browser is blocking sound. Click Play once more, or press "No sound? Try another way".'); report('blocked'); return; }
+    stop(true);
     status('Loading voices…');
     const list = await spec(ctx);
     const limiter = ctx.createDynamicsCompressor();
     limiter.threshold.value = -3; limiter.knee.value = 0; limiter.ratio.value = 20; limiter.attack.value = .003; limiter.release.value = .1;
     const master = ctx.createGain(); master.gain.value = .9;
-    master.connect(limiter); limiter.connect(ctx.destination);
+    master.connect(limiter); limiter.connect(outNode());
     const split = ctx.createChannelSplitter(2), L = ctx.createAnalyser(), R = ctx.createAnalyser();
     L.fftSize = R.fftSize = 1024; master.connect(split); split.connect(L, 0); split.connect(R, 1);
     const built = build(ctx, master, list, spatial, true);
     graph = { ...built, master, L, R, spatial, key: keyOf() };
     playing = true; ui();
-    status(spatial ? 'Playing live · spatial (HRTF). Click a seat or press ← → to move the selected person.' : 'Playing live · mono (same signal in both ears).');
-    loop(); await calibrate();
+    status(spatial ? 'Playing. Drag a person to a new spot and listen to how the voice moves.' : 'Normal call: every voice comes from the same place.');
+    loop();
+    try { await calibrate(); } catch (e) { /* the level matching is a refinement; playback already works */ }
+    report('playing');
+    watchdog(graph);
+  }
+
+  // If sound should be playing but nothing reaches the output, say so in plain words.
+  async function watchdog(g) {
+    await sleep(2200);
+    if (!playing || graph !== g) return;
+    if (ctx.state !== 'running') { status('Your browser paused the sound. Click Play again.'); return; }
+    if (!people.some(p => !p.muted)) return;
+    report('watchdog');
+    if (g.peak < 1e-4) status('Playing, but nothing is coming out. Press "No sound? Try another way" below the table.');
   }
 
   function stop(keepContext) {
@@ -204,6 +256,7 @@ const Live = (() => {
     graph = null; playing = false; ui();
     if (!keepContext && orbit.on) setOrbit(false);
     document.querySelectorAll('.speaking').forEach(e => e.classList.remove('speaking'));
+    document.querySelectorAll('[data-id]').forEach(e => e.style.removeProperty('--lvl'));
     ['#out-l', '#out-r'].forEach(s => { const b = $(s + ' i'); if (b) b.style.transform = 'scaleX(0)'; });
     if (!keepContext) status('Stopped.');
   }
@@ -213,12 +266,14 @@ const Live = (() => {
     const buf = new Float32Array(1024);
     const level = a => { a.getFloatTimeDomainData(buf); let s = 0; for (const v of buf) s += v * v; return Math.sqrt(s / buf.length); };
     graph.nodes.forEach(n => {
-      const v = level(n.ana);
-      document.querySelectorAll(`[data-id="${n.id}"]`).forEach(el => { if (!el.classList.contains('meter')) el.classList.toggle('speaking', v > .01); });
+      const v = level(n.ana), lvl = Math.min(1, v * 6), who = people.find(q => q.id === n.id);
+      document.querySelectorAll(`[data-id="${n.id}"]`).forEach(el => { if (!el.classList.contains('meter')) { el.classList.toggle('speaking', v > .01); el.style.setProperty('--lvl', lvl.toFixed(3)); } });
+      if (who) { const dir = document.querySelector(`.cap[data-id="${n.id}"] .dir`), word = dirWord(angleOf(who) - head); if (dir && dir.textContent !== word) dir.textContent = word; }
       const bar = document.querySelector(`.meter[data-id="${n.id}"] i`);
       if (bar) bar.style.transform = `scaleX(${Math.max(0, Math.min(1, (dB(v) + 60) / 60))})`;
     });
     const l = level(graph.L), r = level(graph.R);
+    graph.peak = Math.max(graph.peak || 0, l, r);
     [['#out-l', l], ['#out-r', r]].forEach(([s, v]) => { $(s + ' i').style.transform = `scaleX(${Math.max(0, Math.min(1, (dB(v) + 60) / 60))})`; $(s + ' b').textContent = v > 1e-4 ? dB(v).toFixed(0) + ' dB' : '-∞'; });
     $('#out-diff').textContent = l > 1e-4 && r > 1e-4 ? `Left ear vs right ear: ${(dB(l) - dB(r)).toFixed(1)} dB` : 'Left ear vs right ear: –';
     raf = requestAnimationFrame(loop);
@@ -232,20 +287,32 @@ const Live = (() => {
     scheduleCalibration();
   }
 
+  // One click: switch to the other way of playing sound and play a beep (or restart playback).
+  function noSound() {
+    outputMode = outputMode === 'element' ? 'direct' : 'element';
+    try { localStorage.setItem('roundtable.output', outputMode); } catch (e) {}
+    report('output-switch');
+    if (playing) { stop(true); start().catch(e => status(`Could not start audio (${e.name}: ${e.message}).`)); }
+    else headphoneCheck();
+    status(outputMode === 'element' ? 'Trying another way of playing sound. You should hear a beep or the voices now. Press the button again to switch back.' : 'Back to the standard way of playing sound.');
+  }
+
   function status(text) { const e = $('#live-status'); if (e) e.textContent = text; }
   function ui() {
     const b = $('#live-toggle'); if (!b) return;
-    b.textContent = playing ? '■  Stop live' : '▶  Play live'; b.classList.toggle('stop', playing); b.setAttribute('aria-pressed', String(playing));
+    b.textContent = playing ? '■  Stop' : '▶  Play'; b.classList.toggle('stop', playing); b.setAttribute('aria-pressed', String(playing));
   }
 
   async function headphoneCheck() {
-    if (!ctx) ctx = new AudioContext({ sampleRate: RATE });
-    await ctx.resume();
+    if (!ctx) ctx = newContext();
+    armSink();
+    if (!(await ensureRunning())) { status('Your browser is blocking sound. Click again, or press "No sound? Try another way".'); report('beep-blocked'); return; }
+    report('beep');
     const beep = (pan, when) => {
       const o = ctx.createOscillator(), g = ctx.createGain(), p = ctx.createStereoPanner();
       o.frequency.value = 440; p.pan.value = pan; g.gain.setValueAtTime(0, ctx.currentTime + when);
       g.gain.linearRampToValueAtTime(.2, ctx.currentTime + when + .03); g.gain.linearRampToValueAtTime(0, ctx.currentTime + when + .5);
-      o.connect(g); g.connect(p); p.connect(ctx.destination); o.start(ctx.currentTime + when); o.stop(ctx.currentTime + when + .55);
+      o.connect(g); g.connect(p); p.connect(outNode()); o.start(ctx.currentTime + when); o.stop(ctx.currentTime + when + .55);
     };
     beep(-1, 0); beep(1, .8);
     status('You should hear a beep in your LEFT ear, then one in your RIGHT ear. If not, check your headphones.');
@@ -267,7 +334,7 @@ const Live = (() => {
   }
   function applyPreset(name) { PRESETS[name].forEach((a, i) => { if (people[i]) people[i].angle = a; }); invalidate(); draw(); }
   function moveSelected(step) {
-    const me = people.find(p => p.id === selected); let i = SEATS.indexOf(me.angle);
+    const me = people.find(p => p.id === selected); let i = SEATS.reduce((best, s, k) => Math.abs(wrap(s - me.angle)) < Math.abs(wrap(SEATS[best] - me.angle)) ? k : best, 0);
     for (let k = 0; k < SEATS.length; k++) {
       i = (i + step + SEATS.length) % SEATS.length;
       if (!people.some(p => p !== me && p.angle === SEATS[i])) { me.angle = SEATS[i]; invalidate(); draw(); return; }
@@ -347,18 +414,36 @@ const Live = (() => {
     } finally { fx = saved.fx; FX[name].wet = saved.wet; }
   }
 
+  // A short noise burst from one direction, rendered with a chosen effect strength (used by "Tune for my ears").
+  async function probe(angle, name) {
+    if (!ctx) ctx = newContext();
+    armSink();
+    await ensureRunning();
+    const n = Math.round(RATE * .7), buf = ctx.createBuffer(1, n, RATE), d = buf.getChannelData(0); let seed = 777;
+    for (let i = 0; i < n; i++) { seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0; const t = i / RATE; d[i] = (seed / 4294967296 * 2 - 1) * .35 * Math.max(0, Math.min(1, t / .02, (.7 - t) / .05)); }
+    const master = ctx.createGain(); master.gain.value = .8; master.connect(outNode());
+    const saved = { fx, head }; fx = name; head = 0;
+    let built; try { built = build(ctx, master, [{ id: 'probe', angle, gain: rearGain(angle), buf }], true, false); } finally { fx = saved.fx; head = saved.head; }
+    built.nodes[0].src.loop = false;
+    await new Promise(r => setTimeout(r, 1400));
+    try { built.nodes[0].src.stop(); master.disconnect(); } catch (e) {}
+  }
+  function setFx(name) { if (!FX[name]) return; fx = name; const sel = $('#fx-select'); if (sel) sel.value = name; save(); if (playing) start(); }
+
   // ---- wiring --------------------------------------------------------------------------------
   function init() {
-    $('#live-toggle').onclick = () => playing ? stop() : start().catch(e => status('Could not start audio: ' + e.message));
+    $('#live-toggle').onclick = () => playing ? stop() : start().catch(e => status(`Could not start audio (${e.name}: ${e.message}).`));
     $('#headphone-check').onclick = headphoneCheck;
     $('#source-select').onchange = e => { source = e.target.value; invalidate(); draw(); };
     document.querySelectorAll('[data-preset]').forEach(b => b.onclick = () => applyPreset(b.dataset.preset));
     $('#selftest').onclick = runSelfTest;
+    $('#nosound').onclick = noSound;
+    $('#tune-open').onclick = () => { if (typeof Tune !== 'undefined') Tune.open(); };
     $('#fx-select').onchange = e => { fx = e.target.value; invalidate(); };
     $('#head-turn').oninput = e => setHead(e.target.value);
     $('#head-reset').onclick = () => setHead(0);
     $('#orbit-toggle').onclick = async () => {
-      try { if (!playing) await start(); } catch (e) { status('Could not start audio: ' + e.message); return; }
+      try { if (!playing) await start(); } catch (e) { status(`Could not start audio (${e.name}: ${e.message}).`); return; }
       setOrbit(!orbit.on);
     };
     const dot = document.createElement('div'); dot.className = 'orbit-dot'; dot.hidden = true; dot.textContent = '♪'; $('#room').append(dot);
@@ -374,6 +459,6 @@ const Live = (() => {
     document.querySelectorAll('[data-page]').forEach(b => b.addEventListener('click', () => { if (b.dataset.page !== 'studio' && playing) stop(); }));
     restore();
   }
-  document.addEventListener('DOMContentLoaded', init);
-  return { sync, stop, start, selfTest, headphoneCheck, directToReverb, get playing() { return playing; } };
+  document.addEventListener('DOMContentLoaded', () => { init(); report('load', { audioApi: !!(window.AudioContext || window.webkitAudioContext) }); });
+  return { sync, stop, start, selfTest, headphoneCheck, directToReverb, setHead, probe, setFx, get head() { return head; }, get playing() { return playing; } };
 })();

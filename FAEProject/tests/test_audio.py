@@ -124,6 +124,11 @@ class SpeechDemoTests(unittest.TestCase):
         with wave.open(io.BytesIO(speech.data), 'rb') as audio:
             self.assertGreater(audio.getnframes(), SAMPLE_RATE * 9)   # longest chat clip is about 9.7 s
 
+    def test_diagnostics_endpoint_accepts_reports_and_ignores_junk(self):
+        ok = self.client.post('/api/diag', json={'event': 'load', 'state': 'running', 'ua': 'x' * 1000})
+        junk = self.client.post('/api/diag', data='not json', content_type='text/plain')
+        self.assertEqual((ok.status_code, junk.status_code), (204, 204))
+
     def test_unknown_source_rejected(self):
         bad = self.client.post('/api/mix', data={'settings': json.dumps({'participants': [{'id': 'a', 'angle': 0}], 'source': 'radio'})})
         self.assertEqual(bad.status_code, 400)

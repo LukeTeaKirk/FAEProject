@@ -107,7 +107,7 @@ const Listen = (() => {
 
   async function begin(label) {
     if (!man) man = await (await fetch('/static/voices/manifest.json')).json();
-    if (!actx) actx = new AudioContext({ sampleRate: RATE });
+    if (!actx) actx = new (window.AudioContext || window.webkitAudioContext)();
     await actx.resume();
     session = { label, time: new Date().toISOString(), trials: [] }; session.plan = makePlan(); index = 0; showTrial();
   }

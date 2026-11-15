@@ -31,5 +31,11 @@
   "seven"
  ],
  "crm_rate": 24000,
- "chat_rate": 48000
+ "chat_rate": 48000,
+ "chat": {
+  "aarav": "Hi everyone, this is Aarav. I just finished the audio lab, and the spectrum plots look great. The harmonics line up exactly as we expected.",
+  "diya": "Hello, Diya here. Can someone send me the slides for tomorrow? I want to check the timeline before the evening meeting starts.",
+  "kabir": "Kabir speaking. The mess is serving paneer tonight, so I am going to eat early, and then head to the library to finish my report.",
+  "meera": "This is Meera. I have recorded three clips for the project, and I will upload them to the shared folder right after dinner."
+ }
 }

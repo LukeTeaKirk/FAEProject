@@ -33,6 +33,16 @@ def create_app():
     def health():
         return jsonify(status="ok", mode="offline prototype", sample_rate=SAMPLE_RATE)
 
+    @app.post("/api/diag")
+    def diagnostics():
+        """Sound-problem report from the page (browser, audio state). Only printed to this computer's server log."""
+        data = request.get_json(silent=True)
+        if not isinstance(data, dict):
+            return ("", 204)
+        safe = {str(k)[:40]: (v if isinstance(v, (int, float, bool)) else str(v)[:240]) for k, v in list(data.items())[:24]}
+        print("DIAG", json.dumps(safe, ensure_ascii=True), flush=True)
+        return ("", 204)
+
     @app.post("/api/mix")
     def render_mix():
         try:
