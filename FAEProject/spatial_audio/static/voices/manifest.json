@@ -1,0 +1,35 @@
+{
+ "engine": "Kokoro (neural)",
+ "people": {
+  "aarav": {
+   "name": "Aarav",
+   "voice": "am_michael"
+  },
+  "diya": {
+   "name": "Diya",
+   "voice": "af_heart"
+  },
+  "kabir": {
+   "name": "Kabir",
+   "voice": "bm_george"
+  },
+  "meera": {
+   "name": "Meera",
+   "voice": "bf_emma"
+  }
+ },
+ "colors": [
+  "red",
+  "blue",
+  "green",
+  "white"
+ ],
+ "numbers": [
+  "one",
+  "three",
+  "five",
+  "seven"
+ ],
+ "crm_rate": 24000,
+ "chat_rate": 48000
+}

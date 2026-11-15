@@ -4,7 +4,10 @@
   <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Roundtable · Spatial audio lab</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='live.css') }}">
   <script defer src="{{ url_for('static', filename='app.js') }}"></script>
+  <script defer src="{{ url_for('static', filename='live.js') }}"></script>
+  <script defer src="{{ url_for('static', filename='listen.js') }}"></script>
 </head>
 <body>
 <aside class="sidebar">
@@ -12,16 +15,17 @@
   <div class="workspace-label">FAE PROJECT / 2026</div>
   <nav aria-label="Main navigation">
     <button class="nav active" data-page="studio"><span>◷</span> Audio studio</button>
+    <button class="nav" data-page="listen"><span>◔</span> Listening test</button>
     <button class="nav" data-page="pipeline"><span>⇄</span> Signal pipeline</button>
     <button class="nav" data-page="roadmap"><span>☷</span> Project roadmap</button>
   </nav>
   <div class="sidebar-bottom"><div class="mini-badge">STAGE 2 PROTOTYPE</div><p>Every voice.<br>Its own place.</p><small>Manan Gupta · Anshul Jain<br>FAE Monsoon 2026</small></div>
 </aside>
 <main>
-<header><div class="breadcrumb">Workspace <span>/</span> <strong id="crumb">Audio studio</strong></div><span class="status"><i></i> Offline demo</span></header>
+<header><div class="breadcrumb">Workspace <span>/</span> <strong id="crumb">Audio studio</strong></div><span class="status"><i></i> Local demo</span></header>
 <section id="studio" class="page">
   <div class="page-heading"><div class="eyebrow">SPATIAL AUDIO CONFERENCING</div><h1>A seat for every voice.</h1><p>Explore how position changes the way a conversation sounds.</p></div>
-  <div class="notice"><span>♧</span><div><strong>Best experienced with headphones</strong><small>This prototype renders short audio clips. Live calls and camera tracking are planned.</small></div><span class="outline-badge">48 kHz · stereo</span></div>
+  <div class="notice"><span>♧</span><div><strong>Best experienced with headphones</strong><small>Spatial audio plays live in your browser. Live calls and camera tracking are planned.</small></div><span class="outline-badge">48 kHz · stereo</span></div>
   <div class="studio-grid">
     <section class="panel room-panel"><div class="panel-top"><div><h2>The virtual table</h2><p>Select a person, then choose a seat.</p></div><span id="seat-count" class="quiet-badge">4 participants</span></div>
       <div class="room" id="room"><div class="room-grid"></div><div class="direction">FRONT · 0°</div><div class="table"><span class="table-label">YOUR LISTENING SPACE</span><div class="listener">♧</div><strong>You</strong><small>Listener at center</small></div><div class="seat-layer" id="seats"></div><div class="room-axis left">LEFT</div><div class="room-axis right">RIGHT</div></div>
@@ -29,19 +33,32 @@
     </section>
     <section class="panel people-panel"><div class="panel-top"><div><h2>Personal mix</h2><p>Make space for each speaker.</p></div><button class="icon-button" id="reset" title="Reset all controls" aria-label="Reset all controls">↺</button></div><div id="people"></div><div class="upload-note">Use the test tones, or add a WAV per person.<br>48 kHz · 16-bit PCM · mono/stereo · up to 15 sec.<br>Clips start together; shorter clips end in silence.</div></section>
   </div>
-  <section class="panel playback"><div class="playback-top"><div><div class="eyebrow">LISTEN & COMPARE</div><h2>Hear the difference.</h2><p id="audio-source-label">Four distinct test tones. No microphone needed.</p></div><div class="segmented" role="group" aria-label="Audio mode"><button data-mode="mono">Mono</button><button data-mode="spatial" class="selected">Spatial</button></div></div>
-    <div class="playback-controls"><button id="render" class="primary">▶ &nbsp; Build spatial demo</button><audio id="player" controls aria-label="Rendered audio mix"></audio><a id="download" class="download" hidden>Download WAV ↓</a></div><p id="message" class="message" role="status" aria-live="polite">Ready to render · seat angles are relative to the center listener.</p>
+  <section class="panel playback"><div class="playback-top"><div><div class="eyebrow">LISTEN & COMPARE</div><h2>Hear the difference, live.</h2><p id="audio-source-label">Four distinct test tones. No microphone needed.</p></div><div class="segmented" role="group" aria-label="Audio mode"><button data-mode="mono">Mono</button><button data-mode="spatial" class="selected">Spatial</button></div></div>
+    <div class="live-bar"><button id="live-toggle" class="primary" aria-pressed="false">▶ &nbsp;Play live</button>
+      <label class="lv-field">Voices <select id="source-select"><option value="tones">Test tones</option><option value="speech">Speech demo (4 voices)</option></select></label>
+      <button id="headphone-check" class="lv-ghost">Headphone check</button></div>
+    <p id="live-status" class="lv-status" role="status" aria-live="polite">Press play, then click a seat to move a person. Changes are heard instantly.</p>
+    <div class="lv-meters" aria-label="What each ear receives"><div class="lv-meter" id="out-l"><span>Left ear</span><div class="lv-bar"><i></i></div><b>–</b></div><div class="lv-meter" id="out-r"><span>Right ear</span><div class="lv-bar"><i></i></div><b>–</b></div><small id="out-diff">Left ear vs right ear: –</small></div>
+    <div class="lv-presets"><span>Seating</span><button class="lv-ghost" data-preset="round">Round table</button><button class="lv-ghost" data-preset="row">Classroom row</button><button class="lv-ghost" data-preset="wide">Wide spread</button><button class="lv-ghost" data-preset="surround">Surround</button><small>Tips: ← → move the selected person, F focuses them.</small></div>
+    <div class="lv-scene"><label class="lv-field">Spatial effect <select id="fx-select"><option value="natural">Natural</option><option value="enhanced" selected>Enhanced (room + stronger front/back)</option><option value="immersive">Immersive (8D)</option></select></label>
+      <label class="lv-field lv-head">Turn your head <input type="range" id="head-turn" min="-180" max="180" value="0" step="5" aria-label="Turn your head"><output id="head-val">0°</output><button class="lv-ghost" id="head-reset" type="button">Face front</button></label>
+      <button class="lv-ghost" id="orbit-toggle" type="button">▶ &nbsp;8D orbit</button></div>
+    <p class="lv-status">Turn your head and the room stays still: voices move relative to you, which is how real hearing tells front from back. Keys: Q and E turn the head.</p>
+    <details class="lv-render"><summary>Render a WAV file instead (offline Python renderer)</summary>
+      <div class="playback-controls"><button id="render" class="primary">▶ &nbsp; Build spatial demo</button><audio id="player" controls aria-label="Rendered audio mix"></audio><a id="download" class="download" hidden>Download WAV ↓</a></div><p id="message" class="message" role="status" aria-live="polite">Ready to render · seat angles are relative to the center listener.</p></details>
   </section>
-  <div class="feature-row"><div><span>01 / POSITION</span><strong>Directional listening</strong><p>Seat angle controls stereo level and a small ear-to-ear delay.</p></div><div><span>02 / CONTROL</span><strong>Your own mix</strong><p>Adjust or mute each source independently.</p></div><div><span>03 / NEXT STEP</span><strong>A live conversation</strong><p>Separate WebRTC voice streams will feed the same mixer.</p></div></div>
+  <div class="feature-row"><div><span>01 / POSITION</span><strong>Directional listening</strong><p>Seat angle controls stereo level and a small ear-to-ear delay.</p></div><div><span>02 / CONTROL</span><strong>Your own mix</strong><p>Adjust or mute each source independently.</p></div><div><span>03 / NEXT STEP</span><strong>A live conversation</strong><p>Separate WebRTC voice streams will feed the same live mixer.</p></div></div>
 </section>
+<section id="listen" class="page" hidden><div class="page-heading"><div class="eyebrow">EVIDENCE</div><h1>Does position help you follow a voice?</h1><p>Three people speak at once. Pick out what one of them said.</p></div><div id="lt-root"></div></section>
 <section id="pipeline" class="page" hidden><div class="page-heading"><div class="eyebrow">UNDER THE HOOD</div><h1>From voice to space.</h1><p>A modular Python foundation for the full conferencing system.</p></div><div class="pipeline-list">
 <article class="panel"><b>01</b><div><h2>Audio sources</h2><p>Working: uploaded PCM WAV clips or generated test tones at 48 kHz. Stereo uploads are downmixed to mono.</p></div><span class="quiet-badge">Implemented</span></article>
 <article class="panel"><b>02</b><div><h2>Call transport</h2><p>Planned: WebRTC signaling, Opus encoding, and one isolated incoming stream per speaker. No live session is connected.</p></div><span class="outline-badge">Planned</span></article>
-<article class="panel"><b>03</b><div><h2>Spatial engine</h2><p>Working: equal-power stereo panning and up to 0.6 ms interaural delay. This approximation does not implement HRTF filtering or distinguish front from back.</p></div><span class="quiet-badge">Implemented</span></article>
-<article class="panel"><b>04</b><div><h2>Personal mixer</h2><p>Working: per-person volume and mute, summed stereo output, and peak normalization to 0.95 to prevent clipping. Mono comparison disables directional cues.</p></div><span class="quiet-badge">Implemented</span></article>
-<article class="panel"><b>05</b><div><h2>Headphone playback</h2><p>Working: render, play, and download a stereo WAV. Live latency has not been measured; the future one-way target is under 150 ms.</p></div><span class="quiet-badge">Implemented</span></article>
+<article class="panel"><b>03</b><div><h2>Spatial engine</h2><p>Working: the live studio uses the browser’s HRTF panner (Web Audio API), which gives left-right and front-back cues. The offline Python renderer uses equal-power panning and up to 0.6 ms interaural delay (no front-back cues).</p></div><span class="quiet-badge">Implemented</span></article>
+<article class="panel"><b>04</b><div><h2>Personal mixer</h2><p>Working: per-person volume, mute and focus, summed stereo output with a limiter, and loudness matching between mono and spatial so the comparison is fair. Mono disables directional cues.</p></div><span class="quiet-badge">Implemented</span></article>
+<article class="panel"><b>05</b><div><h2>Headphone playback</h2><p>Working: live playback in the browser with instant changes and left/right level meters; offline render and WAV download. Network latency has not been measured; the future one-way target is under 150 ms.</p></div><span class="quiet-badge">Implemented</span></article>
+<article class="panel"><b>✓</b><div><h2>Self-test</h2><p>Measures the spatial engine in this browser: ear level differences, mirror symmetry, ear-to-ear delay and front-back difference.</p><button id="selftest" class="lv-ghost">Run self-test</button><div id="selftest-out"></div></div><span class="quiet-badge">Verification</span></article>
 </div></section>
-<section id="roadmap" class="page" hidden><div class="page-heading"><div class="eyebrow">PROJECT DEVELOPMENT</div><h1>A clear path forward.</h1><p>Concept, prototype, then a tested live demonstration.</p></div><div class="roadmap-grid"><article class="panel"><span class="eyebrow">STAGE 01 · CONCEPT</span><h2>The foundation</h2><p>✓ Define the virtual roundtable idea</p><p>✓ Identify audio and spatial concepts</p><p>✓ Outline the evaluation plan</p><span class="quiet-badge">Documented in project brief</span></article><article class="panel current"><span class="eyebrow">STAGE 02 · CURRENT</span><h2>The prototype</h2><p>✓ Interactive seating layout</p><p>✓ Offline spatial mixer and controls</p><p>✓ Recorded WAV and tone playback</p><p>○ Evaluate with recorded speech</p></article><article class="panel"><span class="eyebrow">STAGE 03 · PLANNED</span><h2>The live demo</h2><p>○ Multi-user WebRTC calls</p><p>○ HRTF filtering and streaming</p><p>○ Optional face-tracking focus</p><p>○ Volunteer listening evaluation</p></article></div><article class="panel evaluation"><h2>What we will measure</h2><p>Speaker identification · overlapping-speech comprehension · mono versus spatial preference · clipping · measured one-way latency.</p><p>Focus mode will use manual selection when the camera is off or unreliable. Listening benefits remain to be evaluated.</p></article></section>
+<section id="roadmap" class="page" hidden><div class="page-heading"><div class="eyebrow">PROJECT DEVELOPMENT</div><h1>A clear path forward.</h1><p>Concept, prototype, then a tested live demonstration.</p></div><div class="roadmap-grid"><article class="panel"><span class="eyebrow">STAGE 01 · CONCEPT</span><h2>The foundation</h2><p>✓ Define the virtual roundtable idea</p><p>✓ Identify audio and spatial concepts</p><p>✓ Outline the evaluation plan</p><span class="quiet-badge">Documented in project brief</span></article><article class="panel current"><span class="eyebrow">STAGE 02 · CURRENT</span><h2>The prototype</h2><p>✓ Interactive seating layout</p><p>✓ Live HRTF spatial mixer, focus and meters</p><p>✓ Speech demo voices and WAV upload</p><p>✓ Offline Python renderer and listening-test tool</p><p>○ Run the listening test with volunteers</p></article><article class="panel"><span class="eyebrow">STAGE 03 · PLANNED</span><h2>The live demo</h2><p>○ Multi-user WebRTC calls</p><p>○ HRTF filtering and streaming</p><p>○ Optional face-tracking focus</p><p>○ Volunteer listening evaluation</p></article></div><article class="panel evaluation"><h2>What we will measure</h2><p>Speaker identification · overlapping-speech comprehension · mono versus spatial preference · clipping · measured one-way latency.</p><p>Focus mode will use manual selection when the camera is off or unreliable. Listening benefits remain to be evaluated.</p></article></section>
 <footer>ROUNDTABLE <span>Python prototype · FAE Monsoon 2026</span></footer>
 </main>
 </body></html>

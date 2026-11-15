@@ -2,6 +2,7 @@ import io
 import json
 import unittest
 import wave
+from pathlib import Path
 
 import numpy as np
 
@@ -81,6 +82,51 @@ class RouteTests(unittest.TestCase):
         invalid = self.client.post('/api/mix', data={
             'settings': json.dumps(self.settings), 'a': (io.BytesIO(b'not audio'), 'voice.wav')})
         self.assertEqual(invalid.status_code, 400)
+
+
+class SpeechDemoTests(unittest.TestCase):
+    """Built-in speech assets (tools/make_voices.py) and the 'speech' source of the offline renderer."""
+    VOICES = Path(__file__).resolve().parent.parent / 'spatial_audio' / 'static' / 'voices'
+
+    def setUp(self):
+        self.client = create_app().test_client()
+
+    def test_manifest_and_files_are_complete(self):
+        manifest = json.loads((self.VOICES / 'manifest.json').read_text())
+        self.assertEqual(sorted(manifest['people']), ['aarav', 'diya', 'kabir', 'meera'])
+        for pid in manifest['people']:
+            self.assertTrue((self.VOICES / f'chat_{pid}.wav').is_file())
+            for color in manifest['colors']:
+                for number in manifest['numbers']:
+                    self.assertTrue((self.VOICES / f'crm_{pid}_{color}_{number}.wav').is_file())
+
+    def test_voices_have_equal_loudness(self):
+        levels = []
+        for path in sorted(self.VOICES.glob('crm_*.wav')):
+            with wave.open(str(path), 'rb') as clip:
+                self.assertEqual((clip.getnchannels(), clip.getsampwidth()), (1, 2))
+                x = np.frombuffer(clip.readframes(clip.getnframes()), dtype='<i2') / 32768
+            levels.append(20 * np.log10(np.sqrt(np.mean(x[np.abs(x) > .01] ** 2))))
+        self.assertLess(max(levels) - min(levels), 1.5)
+
+    def test_chat_voices_load_as_valid_wav(self):
+        for pid in ('aarav', 'diya', 'kabir', 'meera'):
+            with (self.VOICES / f'chat_{pid}.wav').open('rb') as stream:
+                samples = read_wav(stream)
+            self.assertGreater(len(samples), SAMPLE_RATE * 5)
+
+    def test_speech_source_renders_and_differs_from_tones(self):
+        people = [{'id': pid, 'angle': a, 'volume': 1} for pid, a in (('aarav', -60), ('diya', 0), ('kabir', 60), ('meera', 120))]
+        speech = self.client.post('/api/mix', data={'settings': json.dumps({'participants': people, 'source': 'speech'})})
+        tones = self.client.post('/api/mix', data={'settings': json.dumps({'participants': people, 'source': 'tones'})})
+        self.assertEqual(speech.status_code, 200)
+        self.assertNotEqual(speech.data, tones.data)
+        with wave.open(io.BytesIO(speech.data), 'rb') as audio:
+            self.assertGreater(audio.getnframes(), SAMPLE_RATE * 9)   # longest chat clip is about 9.7 s
+
+    def test_unknown_source_rejected(self):
+        bad = self.client.post('/api/mix', data={'settings': json.dumps({'participants': [{'id': 'a', 'angle': 0}], 'source': 'radio'})})
+        self.assertEqual(bad.status_code, 400)
 
 
 if __name__ == '__main__':

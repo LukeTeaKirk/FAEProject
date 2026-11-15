@@ -2,11 +2,23 @@
 import io
 import json
 import wave
+from pathlib import Path
 
 from flask import Flask, jsonify, render_template, request, send_file
 
 from .audio import SAMPLE_RATE, mix, read_wav, test_tone, write_wav
 from .models import Participant
+
+VOICES = Path(__file__).parent / "static" / "voices"
+
+
+def speech_demo(person_id):
+    """Built-in demo voice for a participant (see tools/make_voices.py), or None if unavailable."""
+    path = VOICES / f"chat_{person_id}.wav"
+    if not path.is_file():
+        return None
+    with path.open("rb") as stream:
+        return read_wav(stream)
 
 
 def create_app():
@@ -33,10 +45,17 @@ def create_app():
             spatial = settings.get("spatial", True)
             if not isinstance(spatial, bool):
                 raise ValueError("Spatial mode must be true or false.")
+            source = settings.get("source", "tones")
+            if source not in ("tones", "speech"):
+                raise ValueError("Source must be 'tones' or 'speech'.")
             sources = []
             for i, person in enumerate(participants):
                 uploaded = request.files.get(person.id)
-                samples = read_wav(uploaded.stream) if uploaded else test_tone(i)
+                if uploaded:
+                    samples = read_wav(uploaded.stream)
+                else:
+                    samples = (speech_demo(person.id) if source == "speech" else None)
+                    samples = test_tone(i) if samples is None else samples
                 sources.append((person, samples))
             result = mix(sources, spatial=spatial)
             return send_file(io.BytesIO(write_wav(result)), mimetype="audio/wav",
