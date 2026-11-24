@@ -13,7 +13,7 @@ python -m pip install -r requirements.txt
 python app.py
 ```
 
-Open http://127.0.0.1:5001 in a browser. Use headphones. No account, camera, microphone, external CDN, or API key is needed. The server binds only to your own computer. Stop it with Ctrl+C.
+Open http://127.0.0.1:5001 in a browser. Use headphones. The studio runs locally. The webcam tracker is bundled with the project and works offline from first use on macOS and Windows. Keep `spatial_audio/vendor/` with the app when copying it to another laptop. The server binds only to your own computer. Stop it with Ctrl+C.
 
 ## What the live studio adds (branch `anshul-live-studio`)
 
@@ -37,6 +37,8 @@ Open http://127.0.0.1:5001 in a browser. Use headphones. No account, camera, mic
 - **Usability**: seating presets, ← → to move the selected person, headphone check, saved settings, and a collapsed "render a WAV" section.
 - **Listening test** (new page): three voices speak at once, each saying "Name, go to colour number". The volunteer follows one named voice and reports colour and number. 2 practice and 12 counted trials (6 mono, 6 spatial, blind, loudness-matched). Results stay in the browser and export as CSV.
 - **Self-test** (Signal pipeline page): 13 measurements of the spatial engine in your browser (ear level difference, mirror symmetry, ear-to-ear delay, front-back difference, head-turn geometry, rear cue, room tail and direct-to-room balance).
+
+**Laptop or USB webcam:** In Audio studio → More controls, enable camera head tracking and face the screen. Allow the browser to use the camera. Turn left or right during spatial playback, and use Face front to recenter. When several cameras are available, select one in the Camera menu. Tracking processes frames in your browser and stops when you leave the studio or hide the tab.
 
 **Using AirPods:** this app renders its own binaural 3D sound, so it works on any stereo headphones. Apple's Spatial Audio does not need to be on. Turn off "Spatialize Stereo" and head tracking if your headphones offer them, so the sound is not processed twice.
 
@@ -84,7 +86,7 @@ The browser holds current settings and chosen files until reset or refresh; ther
 
 ## Deliberately unfinished
 
-There is **no live conference**, microphone capture, WebRTC signaling, Opus transport, room synchronization, authentication, camera tracking, measured latency, or volunteer evaluation. The offline Python renderer uses a basic stereo approximation (front and back seats at the same lateral angle produce the same cues). The live studio uses the browser's built-in HRTF, not a personalised or measured-for-you filter. The live studio updates instantly, but the optional WAV export is rendered offline and needs a rebuild after each change. Peak normalization in the offline renderer is applied per render and may change relative loudness for loud inputs; the live studio and listening test match mono and spatial loudness.
+There is **no live conference**, microphone capture, WebRTC signaling, Opus transport, room synchronization, authentication, measured latency, or volunteer evaluation. The offline Python renderer uses a basic stereo approximation (front and back seats at the same lateral angle produce the same cues). The live studio uses the browser's built-in HRTF, not a personalised or measured-for-you filter. The live studio updates instantly, but the optional WAV export is rendered offline and needs a rebuild after each change. Peak normalization in the offline renderer is applied per render and may change relative loudness for loud inputs; the live studio and listening test match mono and spatial loudness.
 
 The full project's planned target of under 150 ms one-way latency is not a measured result of this prototype. Android/Windows packaging and camera-based focus are future work (manual focus is implemented). The current deliverable runs locally in a web browser with a Python backend.
 

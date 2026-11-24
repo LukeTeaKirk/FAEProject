@@ -6,6 +6,10 @@
    Shares the state declared in app.js (people, selected, spatial, source, focusId, files, draw, invalidate). */
 const Live = (() => {
   const RATE = 48000, DIST = 1.5, SEATS = [-150, -120, -90, -60, -30, 0, 30, 60, 90, 120, 150, 180], STORE = 'roundtable.settings.v1';
+  const WALL_MIRRORS = [[9, 0], [-9, 0], [0, 9], [0, -9]];
+  const SOUND_SPEED = 343;
+  const DEFAULT_EFFECTS = { hrtf: true, rear: true, distance: true, reflections: true, reverb: true };
+  const effects = { ...DEFAULT_EFFECTS };
   const PRESETS = { round: [-60, 0, 60, 120], row: [-60, -30, 30, 60], wide: [-120, -60, 60, 120], surround: [-90, 0, 90, 180] };
   // Spatial effect strength: how much the rear is dulled/softened, and how much room sound is added.
   const FX = {
@@ -50,14 +54,13 @@ const Live = (() => {
   const $ = s => document.querySelector(s);
   const dB = v => 20 * Math.log10(Math.max(v, 1e-6));
   const mixGain = p => p.muted ? 0 : p.volume * (focusId ? (focusId === p.id ? 1.8 : .55) : 1);
-  const pos = a => [DIST * Math.sin(a * Math.PI / 180), 0, -DIST * Math.cos(a * Math.PI / 180)];
+  const pos = (a, distance = DIST) => [distance * Math.sin(a * Math.PI / 180), 0, -distance * Math.cos(a * Math.PI / 180)];
   const wrap = a => ((a + 540) % 360) - 180;
   const angleOf = p => orbit.on && orbit.id === p.id ? orbit.angle : p.angle;
   // 0 for sources in front or at the sides, 1 for a source directly behind the listener's head.
   const rearness = a => Math.max(0, -Math.cos(wrap(a - head) * Math.PI / 180));
   const cutoff = a => 20000 * Math.pow(FX[fx].cut / 20000, rearness(a));
   const rearGain = a => 1 - (1 - FX[fx].rear) * rearness(a);
-  const gainFor = p => mixGain(p) * rearGain(angleOf(p));
 
   // Listener orientation: when the head turns, the room stays still and every voice moves relative to you.
   function orient(c, smooth) {
@@ -68,19 +71,16 @@ const Live = (() => {
     } else l.setOrientation(fxv, 0, fzv, 0, 1, 0);
   }
 
-  // Synthetic room: a handful of early wall reflections plus a dense tail that decays and darkens over time.
-  // Adding this "space" is what lets voices sound outside the head instead of inside it.
+  // Diffuse late reverb shared by all speakers. Directional wall bounces have separate paths.
   function roomIR(c, rt60) {
     const key = `ir:${rt60}:${c.sampleRate}`; if (cache.has(key)) return cache.get(key);
     const rate = c.sampleRate, n = Math.floor(rate * Math.min(2.4, rt60 * 1.7)), b = c.createBuffer(2, n, rate);
-    const early = [[[.009, .14], [.014, -.12], [.021, .10], [.029, -.09], [.038, .07], [.052, -.06]], [[.011, -.13], [.017, .12], [.024, -.10], [.033, .08], [.041, -.07], [.057, .06]]];
     let s = 20260101; const rnd = () => { s = (Math.imul(s, 1664525) + 1013904223) >>> 0; return s / 4294967296 * 2 - 1; };
     for (let ch = 0; ch < 2; ch++) {
       const d = b.getChannelData(ch); let lp = 0, energy = 0;
       for (let i = 0; i < n; i++) { const t = i / rate, k = .08 + .8 * Math.exp(-t * 5); lp += (rnd() - lp) * k; d[i] = lp * Math.exp(-6.91 * t / rt60) * Math.min(1, t / .012); energy += d[i] * d[i]; }
       const norm = 1 / Math.sqrt(energy);
       for (let i = 0; i < n; i++) d[i] *= norm;
-      early[ch].forEach(([t, a]) => { const i = Math.floor(t * rate); if (i < n) d[i] += a; });
     }
     cache.set(key, b); return b;
   }
@@ -116,51 +116,103 @@ const Live = (() => {
     return cache.get(k);
   }
 
-  const spec = c => Promise.all(people.map(async (p, i) => ({ id: p.id, angle: angleOf(p), gain: gainFor(p), buf: await bufferFor(c, p, i) })));
+  const spec = c => Promise.all(people.map(async (p, i) => {
+    const buf = await bufferFor(c, p, i);
+    return { id: p.id, angle: angleOf(p), distance: p.distance, gain: mixGain(p), buf };
+  }));
+
+  function setParam(param, value, time) {
+    if (time === undefined) param.value = value;
+    else param.setTargetAtTime(value, time, .025);
+  }
+
+  function setPosition(pan, x, z, time) {
+    setParam(pan.positionX, x, time);
+    setParam(pan.positionZ, z, time);
+  }
+
+  function updateVoice(node, angle, distance, settings, time) {
+    const [x, , z] = pos(angle, distance);
+    const direct = node.direct;
+    setPosition(direct.pan, x, z, time);
+    setParam(direct.gain.gain, settings.distance ? DIST / distance : 1, time);
+    setParam(node.rearDry.gain, settings.rear ? 0 : 1, time);
+    setParam(node.rearWet.gain, settings.rear ? rearGain(angle) : 0, time);
+    setParam(node.lowpass.frequency, cutoff(angle), time);
+
+    node.reflections.forEach(({ delay, gain, pan }, i) => {
+      const [wallX, wallZ] = WALL_MIRRORS[i];
+      // Reflect the speaker across the wall. The virtual source gives the bounce direction and path length.
+      const imageX = wallX ? wallX - x : x;
+      const imageZ = wallZ ? wallZ - z : z;
+      const path = Math.hypot(imageX, imageZ);
+      setPosition(pan, imageX, imageZ, time);
+      setParam(delay.delayTime, (path - distance) / SOUND_SPEED, time);
+      setParam(gain.gain, settings.reflections ? FX[fx].wet * .5 * DIST / path : 0, time);
+    });
+  }
 
   // One graph builder serves the live context and the offline calibration and self-test renders.
-  function build(c, dest, list, spatialMode, live) {
+  function build(c, dest, list, spatialMode, live, settings = DEFAULT_EFFECTS) {
     orient(c);
     const bus = c.createGain();
     bus.channelCount = 2; bus.channelCountMode = 'explicit'; bus.channelInterpretation = 'speakers';   // mono sources feed both ears equally
-    bus.gain.value = spatialMode ? 1 : monoComp;
     bus.connect(dest);
-    let room = null;
+    const connectSpatial = (input, binaural, centered) => {
+      const pan = c.createPanner();
+      pan.panningModel = 'HRTF'; pan.rolloffFactor = 0;
+      input.connect(pan); pan.connect(binaural); input.connect(centered);
+      return pan;
+    };
+    let room, reverb, binaural, centered;
     if (spatialMode) {
+      binaural = c.createGain(); binaural.gain.value = Number(settings.hrtf); binaural.connect(bus);
+      centered = c.createGain(); centered.gain.value = Number(!settings.hrtf); centered.connect(bus);
       room = c.createConvolver(); room.buffer = roomIR(c, FX[fx].rt60);
-      const wet = c.createGain(); wet.gain.value = FX[fx].wet; room.connect(wet); wet.connect(bus);
+      reverb = c.createGain(); reverb.gain.value = settings.reverb ? FX[fx].wet : 0;
+      room.connect(reverb); reverb.connect(bus);
     }
     const nodes = list.map(s => {
       const src = c.createBufferSource(); src.buffer = s.buf; src.loop = true;
       const g = c.createGain(); g.gain.value = s.gain; src.connect(g);
-      let pan = null, lp = null, tail = g;
+      const node = { id: s.id, src, g };
       if (spatialMode) {
-        lp = c.createBiquadFilter(); lp.type = 'lowpass'; lp.Q.value = .5; lp.frequency.value = cutoff(s.angle); g.connect(lp);   // sources behind the head sound duller
-        pan = c.createPanner(); pan.panningModel = 'HRTF'; pan.distanceModel = 'inverse'; pan.refDistance = 1; pan.rolloffFactor = 0;
-        const [x, y, z] = pos(s.angle); pan.positionX.value = x; pan.positionY.value = y; pan.positionZ.value = z;
-        lp.connect(pan); lp.connect(room); tail = pan;   // direct sound is directional; the room sound is diffuse
-      }
-      let ana = null;
-      if (live) { ana = c.createAnalyser(); ana.fftSize = 1024; g.connect(ana); }
-      tail.connect(bus); src.start(0);
-      return { id: s.id, src, g, lp, pan, ana };
+        const rearDry = c.createGain(), rearWet = c.createGain(), direct = c.createGain();
+        const lowpass = c.createBiquadFilter(); lowpass.type = 'lowpass'; lowpass.Q.value = .5;
+        g.connect(rearDry); g.connect(lowpass); lowpass.connect(rearWet);
+        rearDry.connect(direct); rearWet.connect(direct);
+        rearDry.connect(room); rearWet.connect(room);
+        const reflections = WALL_MIRRORS.map(() => {
+          const delay = c.createDelay(.1), gain = c.createGain();
+          g.connect(delay); delay.connect(gain);
+          return { delay, gain, pan: connectSpatial(gain, binaural, centered) };
+        });
+        Object.assign(node, {
+          lowpass, rearDry, rearWet, reflections,
+          direct: { gain: direct, pan: connectSpatial(direct, binaural, centered) }
+        });
+        updateVoice(node, s.angle, s.distance ?? DIST, settings);
+      } else g.connect(bus);
+      if (live) { node.ana = c.createAnalyser(); node.ana.fftSize = 1024; g.connect(node.ana); }
+      src.start(0);
+      return node;
     });
-    return { nodes, bus };
+    return { nodes, bus, binaural, centered, reverb };
   }
 
   // Push the current angles, head turn and gains to the running graph.
   function applyParams() {
     if (!graph || !ctx) return;
     const t = ctx.currentTime;
+    if (graph.spatial) {
+      setParam(graph.binaural.gain, Number(effects.hrtf), t);
+      setParam(graph.centered.gain, Number(!effects.hrtf), t);
+      setParam(graph.reverb.gain, effects.reverb ? FX[fx].wet : 0, t);
+    }
     people.forEach(p => {
       const n = graph.nodes.find(x => x.id === p.id); if (!n) return;
-      const a = angleOf(p);
-      n.g.gain.setTargetAtTime(gainFor(p), t, .04);
-      if (n.pan) {
-        const [x, y, z] = pos(a);
-        n.pan.positionX.setTargetAtTime(x, t, .05); n.pan.positionY.setTargetAtTime(y, t, .05); n.pan.positionZ.setTargetAtTime(z, t, .05);
-        n.lp.frequency.setTargetAtTime(cutoff(a), t, .05);
-      }
+      setParam(n.g.gain, mixGain(p), t);
+      if (n.direct) updateVoice(n, angleOf(p), p.distance ?? DIST, effects, t);
     });
   }
 
@@ -203,9 +255,10 @@ const Live = (() => {
   // Render both offline and scale the mono path so their RMS matches.
   async function calibrate() {
     const list = await spec(ctx), length = RATE * 4;
+    const settings = { ...effects };
     const rms = async mode => {
       const o = new OfflineAudioContext(2, length, RATE);
-      build(o, o.destination, list, mode, false);
+      build(o, o.destination, list, mode, false, settings);
       const out = await o.startRendering(); let s = 0;
       for (let ch = 0; ch < 2; ch++) for (const v of out.getChannelData(ch)) s += v * v;
       return Math.sqrt(s / (2 * length));
@@ -230,8 +283,9 @@ const Live = (() => {
     master.connect(limiter); limiter.connect(outNode());
     const split = ctx.createChannelSplitter(2), L = ctx.createAnalyser(), R = ctx.createAnalyser();
     L.fftSize = R.fftSize = 1024; master.connect(split); split.connect(L, 0); split.connect(R, 1);
-    const built = build(ctx, master, list, spatial, true);
-    graph = { ...built, master, L, R, spatial, key: keyOf() };
+    const built = build(ctx, master, list, spatial, true, effects);
+    if (!spatial) built.bus.gain.value = monoComp;
+    graph = { ...built, master, limiter, L, R, spatial, key: keyOf() };
     playing = true; ui();
     status(spatial ? 'Playing. Drag a person to a new spot and listen to how the voice moves.' : 'Normal call: every voice comes from the same place.');
     loop();
@@ -252,7 +306,11 @@ const Live = (() => {
 
   function stop(keepContext) {
     cancelAnimationFrame(raf);
-    if (graph) { graph.nodes.forEach(n => { try { n.src.stop(); } catch (e) {} }); try { graph.master.disconnect(); } catch (e) {} }
+    if (graph) {
+      graph.nodes.forEach(n => { try { n.src.stop(); } catch (e) {} });
+      graph.master.disconnect();
+      graph.limiter.disconnect();
+    }
     graph = null; playing = false; ui();
     if (!keepContext && orbit.on) setOrbit(false);
     document.querySelectorAll('.speaking').forEach(e => e.classList.remove('speaking'));
@@ -320,17 +378,37 @@ const Live = (() => {
 
   // ---- saved settings, presets, keyboard -----------------------------------------------------
   function save() {
-    try { localStorage.setItem(STORE, JSON.stringify({ people: people.map(p => ({ id: p.id, angle: p.angle, volume: p.volume, muted: p.muted })), spatial, source, focusId, fx })); } catch (e) {}
+    try {
+      const seats = people.map(({ id, angle, distance, volume, muted }) => ({ id, angle, distance, volume, muted }));
+      localStorage.setItem(STORE, JSON.stringify({ people: seats, spatial, source, focusId, fx, effects }));
+    } catch (e) {}
   }
   function restore() {
     try {
       const s = JSON.parse(localStorage.getItem(STORE) || 'null'); if (!s) return;
-      s.people.forEach(x => { const p = people.find(q => q.id === x.id); if (p) Object.assign(p, { angle: x.angle, volume: x.volume, muted: x.muted }); });
+      s.people.forEach(x => {
+        const p = people.find(q => q.id === x.id);
+        if (p) Object.assign(p, {
+          angle: x.angle, volume: x.volume, muted: x.muted,
+          distance: Number.isFinite(x.distance) ? Math.max(.75, Math.min(3.5, x.distance)) : DIST
+        });
+      });
+      for (const name of Object.keys(effects)) {
+        if (typeof s.effects?.[name] === 'boolean') effects[name] = s.effects[name];
+      }
       fx = FX[s.fx] ? s.fx : 'enhanced'; $('#fx-select').value = fx;
       source = s.source === 'speech' ? 'speech' : 'tones'; focusId = people.some(p => p.id === s.focusId) ? s.focusId : null;
       if (s.spatial === false) document.querySelector('[data-mode="mono"]').click();
       $('#source-select').value = source; draw();
     } catch (e) {}
+  }
+  function updateDistanceControl() {
+    const person = people.find(p => p.id === selected);
+    const distance = person.distance ?? DIST;
+    $('#seat-distance-label').textContent = `${person.name}’s distance`;
+    $('#seat-distance').value = distance;
+    $('#seat-distance').setAttribute('aria-valuetext', `${distance} meters`);
+    $('#seat-distance-value').value = `${distance} m`;
   }
   function applyPreset(name) { PRESETS[name].forEach((a, i) => { if (people[i]) people[i].angle = a; }); invalidate(); draw(); }
   function moveSelected(step) {
@@ -371,7 +449,7 @@ const Live = (() => {
       const sf = fx, sh = head; fx = o.fx || 'enhanced'; head = o.head || 0;
       const n = Math.round(RATE * (o.len || .6)), ctx2 = new OfflineAudioContext(2, n, RATE), b = ctx2.createBuffer(1, n, RATE), d = b.getChannelData(0);
       if (o.impulse) d[100] = .9; else { let s = 12345; for (let i = 0; i < n; i++) { s = (Math.imul(s, 1664525) + 1013904223) >>> 0; d[i] = (s / 4294967296 * 2 - 1) * .5; } }
-      try { build(ctx2, ctx2.destination, [{ id: 't', angle, gain: rearGain(angle), buf: b }], true, false); } finally { fx = sf; head = sh; }
+      try { build(ctx2, ctx2.destination, [{ id: 't', angle, gain: 1, buf: b }], true, false); } finally { fx = sf; head = sh; }
       const out = await ctx2.startRendering(); return [out.getChannelData(0), out.getChannelData(1)];
     };
     const ildOf = ([l, r]) => dB(rms(l)) - dB(rms(r));
@@ -423,7 +501,7 @@ const Live = (() => {
     for (let i = 0; i < n; i++) { seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0; const t = i / RATE; d[i] = (seed / 4294967296 * 2 - 1) * .35 * Math.max(0, Math.min(1, t / .02, (.7 - t) / .05)); }
     const master = ctx.createGain(); master.gain.value = .8; master.connect(outNode());
     const saved = { fx, head }; fx = name; head = 0;
-    let built; try { built = build(ctx, master, [{ id: 'probe', angle, gain: rearGain(angle), buf }], true, false); } finally { fx = saved.fx; head = saved.head; }
+    let built; try { built = build(ctx, master, [{ id: 'probe', angle, gain: 1, buf }], true, false, effects); } finally { fx = saved.fx; head = saved.head; }
     built.nodes[0].src.loop = false;
     await new Promise(r => setTimeout(r, 1400));
     try { built.nodes[0].src.stop(); master.disconnect(); } catch (e) {}
@@ -440,6 +518,18 @@ const Live = (() => {
     $('#nosound').onclick = noSound;
     $('#tune-open').onclick = () => { if (typeof Tune !== 'undefined') Tune.open(); };
     $('#fx-select').onchange = e => { fx = e.target.value; invalidate(); };
+    const toggles = document.querySelectorAll('[data-effect]');
+    toggles.forEach(button => button.onclick = () => {
+      const name = button.dataset.effect;
+      effects[name] = !effects[name];
+      button.setAttribute('aria-pressed', String(effects[name]));
+      sync();
+    });
+    $('#seat-distance').oninput = e => {
+      people.find(p => p.id === selected).distance = Number(e.target.value);
+      updateDistanceControl();
+      sync();
+    };
     $('#head-turn').oninput = e => setHead(e.target.value);
     $('#head-reset').onclick = () => setHead(0);
     $('#orbit-toggle').onclick = async () => {
@@ -458,7 +548,9 @@ const Live = (() => {
     });
     document.querySelectorAll('[data-page]').forEach(b => b.addEventListener('click', () => { if (b.dataset.page !== 'studio' && playing) stop(); }));
     restore();
+    toggles.forEach(button => button.setAttribute('aria-pressed', String(effects[button.dataset.effect])));
+    updateDistanceControl();
   }
   document.addEventListener('DOMContentLoaded', () => { init(); report('load', { audioApi: !!(window.AudioContext || window.webkitAudioContext) }); });
-  return { sync, stop, start, selfTest, headphoneCheck, directToReverb, setHead, probe, setFx, get head() { return head; }, get playing() { return playing; } };
+  return { sync, stop, start, selfTest, headphoneCheck, directToReverb, setHead, probe, setFx, updateDistanceControl, get head() { return head; }, get playing() { return playing; } };
 })();

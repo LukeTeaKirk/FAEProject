@@ -8,6 +8,7 @@ from flask import Flask, jsonify, render_template, request, send_file
 
 from .audio import SAMPLE_RATE, mix, read_wav, test_tone, write_wav
 from .models import Participant
+from .tracking_assets import tracking_assets
 
 VOICES = Path(__file__).parent / "static" / "voices"
 
@@ -23,6 +24,7 @@ def speech_demo(person_id):
 
 def create_app():
     app = Flask(__name__)
+    app.register_blueprint(tracking_assets)
     app.config["MAX_CONTENT_LENGTH"] = 24 * 1024 * 1024
 
     @app.get("/")

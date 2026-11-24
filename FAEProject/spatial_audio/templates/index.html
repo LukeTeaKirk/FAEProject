@@ -2,12 +2,13 @@
 <html lang="en">
 <head>
   <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Roundtable · Spatial audio lab</title>
+  <title>Roundtable · Stage 3 Prototype</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
   <link rel="stylesheet" href="{{ url_for('static', filename='live.css') }}">
   <script defer src="{{ url_for('static', filename='app.js') }}"></script>
   <script defer src="{{ url_for('static', filename='live.js') }}"></script>
   <script defer src="{{ url_for('static', filename='listen.js') }}"></script>
+  <script defer src="{{ url_for('static', filename='tracking.js') }}"></script>
   <script defer src="{{ url_for('static', filename='tune.js') }}"></script>
 </head>
 <body>
@@ -20,7 +21,7 @@
     <button class="nav" data-page="pipeline"><span>⇄</span> Signal pipeline</button>
     <button class="nav" data-page="roadmap"><span>☷</span> Project roadmap</button>
   </nav>
-  <div class="sidebar-bottom"><div class="mini-badge">STAGE 2 PROTOTYPE</div><p>Every voice.<br>Its own place.</p><small>Manan Gupta · Anshul Jain<br>FAE Monsoon 2026</small></div>
+  <div class="sidebar-bottom"><div class="mini-badge">Stage 3 Prototype</div><p>Every voice.<br>Its own place.</p><small>Manan Gupta · Anshul Jain<br>FAE Monsoon 2026</small></div>
 </aside>
 <main>
 <header><div class="breadcrumb">Workspace <span>/</span> <strong id="crumb">Audio studio</strong></div><span class="status"><i></i> Local demo</span></header>
@@ -43,9 +44,28 @@
       <label class="lv-field">Strength <select id="fx-select"><option value="natural">Subtle</option><option value="enhanced" selected>Clear (recommended)</option><option value="immersive">Dramatic (8D)</option></select></label>
       <button id="tune-open" class="lv-ghost" type="button">Tune for my ears</button>
       <button id="headphone-check" class="lv-ghost" type="button">Test my headphones</button></div>
+    <div class="lv-effects">
+      <div class="lv-toggles" role="group" aria-label="Spatial audio algorithms">
+        <button class="lv-ghost" type="button" data-effect="hrtf" aria-pressed="true" title="Apply binaural direction cues">HRTF</button>
+        <button class="lv-ghost" type="button" data-effect="rear" aria-pressed="true" title="Soften and darken voices behind you">Rear filtering</button>
+        <button class="lv-ghost" type="button" data-effect="distance" aria-pressed="true" title="Change voice level with seat distance">Distance attenuation</button>
+        <button class="lv-ghost" type="button" data-effect="reflections" aria-pressed="true" title="Simulate individual wall bounces">Room reflections</button>
+        <button class="lv-ghost" type="button" data-effect="reverb" aria-pressed="true" title="Add the diffuse room decay">Reverb tail</button>
+      </div>
+      <label class="lv-field lv-distance"><span id="seat-distance-label">Aarav’s distance</span>
+        <input id="seat-distance" type="range" min="0.75" max="3.5" step="0.25" value="1.5" aria-labelledby="seat-distance-label">
+        <output id="seat-distance-value" for="seat-distance">1.5 m</output>
+      </label>
+      <p class="lv-status">These controls apply to live playback in Around the table mode. Select a speaker to change their distance.</p>
+    </div>
     <div class="lv-presets"><span>Seating</span><button class="lv-ghost" data-preset="round">Round table</button><button class="lv-ghost" data-preset="row">Classroom row</button><button class="lv-ghost" data-preset="wide">Wide spread</button><button class="lv-ghost" data-preset="surround">Surround</button><small>Keys: ← → move the selected person, F focuses them.</small></div>
     <div class="lv-scene"><label class="lv-field lv-head">Turn your head <input type="range" id="head-turn" min="-180" max="180" value="0" step="5" aria-label="Turn your head"><output id="head-val">0°</output><button class="lv-ghost" id="head-reset" type="button">Face front</button></label>
       <button class="lv-ghost" id="orbit-toggle" type="button">▶ &nbsp;8D orbit</button></div>
+    <div class="lv-scene">
+      <button type="button" class="lv-ghost" id="camera-toggle" aria-pressed="false">Enable camera head tracking</button>
+      <label class="lv-field" id="camera-choice" hidden>Camera <select id="tracking-camera"></select></label>
+      <span class="lv-status" id="camera-status" role="status">Camera off. Face the screen when enabling tracking.</span>
+    </div>
     <p class="lv-status">When you turn your head the room stays still and voices move around you, which is how real hearing tells front from back. Keys: Q and E turn the head.</p>
     <div class="lv-meters" aria-label="What each ear receives"><div class="lv-meter" id="out-l"><span>Left ear</span><div class="lv-bar"><i></i></div><b>–</b></div><div class="lv-meter" id="out-r"><span>Right ear</span><div class="lv-bar"><i></i></div><b>–</b></div><small id="out-diff">Left ear vs right ear: –</small></div>
     <details class="lv-render"><summary>Render a WAV file instead (offline Python renderer)</summary>
@@ -62,8 +82,8 @@
 <article class="panel"><b>05</b><div><h2>Headphone playback</h2><p>Working: live playback in the browser with instant changes and left/right level meters; offline render and WAV download. Network latency has not been measured; the future one-way target is under 150 ms.</p></div><span class="quiet-badge">Implemented</span></article>
 <article class="panel"><b>✓</b><div><h2>Self-test</h2><p>Measures the spatial engine in this browser: ear level differences, mirror symmetry, ear-to-ear delay and front-back difference.</p><button id="selftest" class="lv-ghost">Run self-test</button><div id="selftest-out"></div></div><span class="quiet-badge">Verification</span></article>
 </div></section>
-<section id="roadmap" class="page" hidden><div class="page-heading"><div class="eyebrow">PROJECT DEVELOPMENT</div><h1>A clear path forward.</h1><p>Concept, prototype, then a tested live demonstration.</p></div><div class="roadmap-grid"><article class="panel"><span class="eyebrow">STAGE 01 · CONCEPT</span><h2>The foundation</h2><p>✓ Define the virtual roundtable idea</p><p>✓ Identify audio and spatial concepts</p><p>✓ Outline the evaluation plan</p><span class="quiet-badge">Documented in project brief</span></article><article class="panel current"><span class="eyebrow">STAGE 02 · CURRENT</span><h2>The prototype</h2><p>✓ Interactive seating layout</p><p>✓ Live HRTF spatial mixer, focus and meters</p><p>✓ Speech demo voices and WAV upload</p><p>✓ Offline Python renderer and listening-test tool</p><p>○ Run the listening test with volunteers</p></article><article class="panel"><span class="eyebrow">STAGE 03 · PLANNED</span><h2>The live demo</h2><p>○ Multi-user WebRTC calls</p><p>○ HRTF filtering and streaming</p><p>○ Optional face-tracking focus</p><p>○ Volunteer listening evaluation</p></article></div><article class="panel evaluation"><h2>What we will measure</h2><p>Speaker identification · overlapping-speech comprehension · mono versus spatial preference · clipping · measured one-way latency.</p><p>Focus mode will use manual selection when the camera is off or unreliable. Listening benefits remain to be evaluated.</p></article></section>
-<footer>ROUNDTABLE <span>Python prototype · FAE Monsoon 2026</span></footer>
+<section id="roadmap" class="page" hidden><div class="page-heading"><div class="eyebrow">PROJECT DEVELOPMENT</div><h1>A clear path forward.</h1><p>Concept, prototype, then a tested live demonstration.</p></div><div class="roadmap-grid"><article class="panel"><span class="eyebrow">STAGE 01 · CONCEPT</span><h2>The foundation</h2><p>✓ Define the virtual roundtable idea</p><p>✓ Identify audio and spatial concepts</p><p>✓ Outline the evaluation plan</p><span class="quiet-badge">Documented in project brief</span></article><article class="panel current"><span class="eyebrow">CURRENT</span><h2>Stage 3 Prototype</h2><p>✓ Interactive seating layout</p><p>✓ Live HRTF spatial mixer, focus and meters</p><p>✓ Speech demo voices and WAV upload</p><p>✓ Offline Python renderer and listening-test tool</p><p>○ Run the listening test with volunteers</p></article><article class="panel"><span class="eyebrow">PLANNED</span><h2>The live demo</h2><p>○ Multi-user WebRTC calls</p><p>○ HRTF filtering and streaming</p><p>○ Optional face-tracking focus</p><p>○ Volunteer listening evaluation</p></article></div><article class="panel evaluation"><h2>What we will measure</h2><p>Speaker identification · overlapping-speech comprehension · mono versus spatial preference · clipping · measured one-way latency.</p><p>Focus mode will use manual selection when the camera is off or unreliable. Listening benefits remain to be evaluated.</p></article></section>
+<footer>ROUNDTABLE <span>Stage 3 Prototype · FAE Monsoon 2026</span></footer>
 <dialog id="tune" aria-labelledby="tune-title"></dialog>
 </main>
 </body></html>

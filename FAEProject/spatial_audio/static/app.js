@@ -52,6 +52,7 @@ function invalidate(){
 function draw(){
   const chosen=people.find(p=>p.id===selected);
   $('#selected-label').textContent=`${chosen.name} · ${angleLabel(chosen.angle)}`;
+  if(typeof Live!=='undefined')Live.updateDistanceControl();
   const layer=$('#seats');layer.innerHTML='';
   people.forEach(p=>{const beam=document.createElement('span');beam.className='beam';beam.dataset.id=p.id;beam.style.setProperty('--a',`${p.angle-90}deg`);layer.append(beam);});
   SEAT_ANGLES.forEach(angle=>{
