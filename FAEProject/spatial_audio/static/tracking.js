@@ -139,6 +139,7 @@
   document.querySelectorAll('[data-page]').forEach(button => {
     if (button.dataset.page !== 'studio') button.addEventListener('click', () => stop());
   });
+  document.querySelector('#tune-open').addEventListener('click', () => stop(), true);
   document.addEventListener('visibilitychange', () => { if (document.hidden) stop(); });
   window.addEventListener('pagehide', () => stop());
 })();

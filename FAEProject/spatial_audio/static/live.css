@@ -118,3 +118,79 @@
 
 #sink{display:none}
 #nosound{white-space:nowrap}
+
+/* ---- readability: nothing on screen is smaller than 12 px, key things are much larger ---- */
+.workspace-label,.eyebrow,.quiet-badge,.outline-badge{font-size:12px}
+.mini-badge{font-size:11px}.sidebar-bottom small{font-size:12px}
+.nav{font-size:15px}.nav span{font-size:20px}
+header{font-size:14px}.status{font-size:13px}
+.header-tools{display:flex;align-items:center;gap:18px}
+.header-tools .lv-ghost{font-size:13px;padding:7px 12px}
+.header-tools .lv-ghost[aria-pressed="true"]{background:#e6efe3;border-color:#a6bd9f;color:#284f3d}
+.notice strong{font-size:15px}.notice small{font-size:13px}
+.panel-top p,.playback p{font-size:14px;line-height:1.5}
+.primary,.segmented button{font-size:14px}
+.primary.tour{background:#fff;color:#315f4a;border:2px solid #315f4a;padding:10px 17px}
+.lv-field,.lv-ghost,.lv-field select{font-size:13px}
+.lv-status,.lv-presets,.lv-presets small{font-size:13px}
+.room{height:480px}
+.table{width:224px;height:224px}
+.table-label{font-size:10px;margin-bottom:14px}.table strong{font-size:16px}.table small{font-size:12px}
+.listener{width:54px;height:54px;font-size:28px}
+.direction{font-size:12px;font-weight:600}.room-axis{font-size:12px;font-weight:600}
+.seat{font-size:14px;font-weight:650;min-width:78px;color:#3f5a4b}
+.avatar{width:54px;height:54px;font-size:16px}
+.seat.empty{width:32px;min-width:32px;height:32px}
+.room-footer{font-size:14px;color:#52645a}#selected-label{white-space:nowrap}
+.person .avatar{width:38px;height:38px;font-size:12px}
+.person-name{font-size:15px}.person-angle{font-size:12px;color:#66756c}
+.mute,.focus-btn{font-size:12px;padding:5px 10px}
+.volume-value{font-size:13px;width:42px}
+.file-label,.upload-note{font-size:12px;color:#66756c}
+.message{font-size:13px!important;color:#66756c!important}.download{font-size:13px}
+.feature-row span{font-size:11px}.feature-row strong{font-size:16px}.feature-row p{font-size:14px;max-width:300px;color:#52645a}
+footer{font-size:11px}
+.page-heading p{font-size:15px}
+.roadmap-grid p,.pipeline-list p{font-size:14px}
+.lt-table{font-size:14px}.lt-table th{font-size:12px}
+.cap b{font-size:16px}.cap .dir{font-size:14px;font-weight:600}.cap p{font-size:14px;min-height:42px;color:#52645a}
+.captions{padding:16px 24px}
+/* ear bars: the clearest proof that sound is spatial, so they are big and sit under the table */
+.ears{border-top:1px solid #edf0e8;padding:16px 24px 8px}
+.ears .lv-meters{margin:0;gap:10px 28px}
+.ears .lv-meter{grid-template-columns:92px 1fr 60px;font-size:13px;font-weight:700;color:var(--ink);letter-spacing:.5px}
+.ears .lv-meter b{font-size:14px;text-align:right}
+.ears .lv-bar{height:18px;border-radius:9px;background:#e9eee4}.ears .lv-bar i{border-radius:9px;transition:transform .06s linear}
+#out-l .lv-bar i{background:#3b7fb0}#out-r .lv-bar i{background:#c2703d}
+.ears .lv-meters small{font-size:17px;font-weight:700;text-align:center;margin-top:6px;color:var(--green)}
+
+/* ---- guided tour subtitles ---- */
+.demo-banner{position:fixed;bottom:22px;left:calc(50% + 117px);transform:translateX(-50%);width:min(820px,calc(100vw - 300px));z-index:20;display:flex;gap:18px;align-items:center;justify-content:space-between;
+  background:#1f3a31;color:#fff;border-radius:16px;padding:18px 24px;box-shadow:0 14px 40px #10231c55}
+.demo-banner b{display:block;font-size:24px;line-height:1.25;margin-bottom:4px}
+.demo-banner span{display:block;font-size:19px;line-height:1.4;color:#e4efe6}
+.demo-banner .lv-ghost{flex:none;background:transparent;color:#fff;border-color:#ffffff66;font-size:14px}
+.demo-banner .lv-ghost:hover{background:#ffffff1f}
+@media(max-width:1100px){.demo-banner{left:50%;width:calc(100vw - 32px)}}
+
+/* ---- Larger text switch (header): the whole workspace grows by a quarter ---- */
+body.big main{zoom:1.25}
+body.big .demo-banner b{font-size:28px}body.big .demo-banner span{font-size:22px}
+@media(max-width:650px){.room{height:420px}.ears .lv-meter{grid-template-columns:70px 1fr 54px}}
+
+/* ---- live call panel ---- */
+.call-panel{padding:20px 24px;margin-bottom:21px}
+.call-top h2{margin:4px 0 6px;font-size:20px}.call-top p{font-size:14px;color:#52645a;max-width:760px}
+.call-form{display:flex;flex-wrap:wrap;gap:14px;align-items:center;margin-top:14px}
+.call-form input[type=text]{font-size:14px;padding:9px 11px;border:1px solid var(--line);border-radius:6px;width:150px}
+.call-form .primary{padding:10px 20px}
+.call-live{display:flex;gap:12px;margin-top:14px}
+.call-list{list-style:none;margin:8px 0 0;padding:0;display:flex;flex-wrap:wrap;gap:8px 22px;font-size:14px;color:#52645a}
+.call-list li.ok::before{content:'● ';color:#3f9b5f}
+.empty-note{padding:18px 22px;font-size:14px;color:#52645a;line-height:1.6}
+/* balance needle: slides toward the ear that hears more */
+.balance{display:grid;grid-template-columns:48px 1fr 56px;gap:12px;align-items:center;margin:10px 0 4px;font-size:12px;font-weight:700;letter-spacing:.5px;color:var(--muted)}
+.balance span:last-child{text-align:right}
+.balance-track{position:relative;height:10px;border-radius:5px;background:linear-gradient(90deg,#3b7fb0,#e9eee4 50%,#c2703d)}
+.balance-track::after{content:'';position:absolute;left:50%;top:-4px;bottom:-4px;width:2px;background:#9aa89f}
+.balance-track i{position:absolute;top:50%;left:50%;width:22px;height:22px;margin:-11px 0 0 -11px;border-radius:50%;background:#fff;border:3px solid var(--green);box-shadow:0 2px 6px #0003}

@@ -17,7 +17,7 @@ const Live = (() => {
     enhanced:  { cut: 5500,  rear: .85, wet: 1.0, rt60: .65 },
     immersive: { cut: 3200,  rear: .65, wet: 1.3, rt60: .95 }
   };
-  let ctx = null, graph = null, playing = false, raf = 0, timer = 0, monoComp = 1, fx = 'enhanced', head = 0;
+  let balance = 0, ctx = null, graph = null, playing = false, raf = 0, timer = 0, monoComp = 1, fx = 'enhanced', head = 0;
   const orbit = { on: false, id: null, a0: 0, t0: 0, angle: 0, raf: 0 };
   const cache = new Map();
   // Use the device's own sample rate. Forcing 48 kHz can silence Safari on some Bluetooth headphones.
@@ -103,7 +103,7 @@ const Live = (() => {
       if (!cache.has(k)) cache.set(k, await c.decodeAudioData(await f.arrayBuffer()));
       return cache.get(k);
     }
-    if (source === 'speech') {
+    if (source === 'speech' && !p.remote) {
       const url = `/static/voices/chat_${p.id}.wav`;
       if (!cache.has(url)) {
         const r = await fetch(url);
@@ -118,7 +118,7 @@ const Live = (() => {
 
   const spec = c => Promise.all(people.map(async (p, i) => {
     const buf = await bufferFor(c, p, i);
-    return { id: p.id, angle: angleOf(p), distance: p.distance, gain: mixGain(p), buf };
+    return { id: p.id, angle: angleOf(p), distance: p.distance, gain: mixGain(p), buf, stream: p.remote && typeof Call !== 'undefined' ? Call.streamFor(p.id) : null };
   }));
 
   function setParam(param, value, time) {
@@ -173,7 +173,9 @@ const Live = (() => {
       room.connect(reverb); reverb.connect(bus);
     }
     const nodes = list.map(s => {
-      const src = c.createBufferSource(); src.buffer = s.buf; src.loop = true;
+      // A call participant is a live stream (only in the real-time graph); the offline renders use the stand-in buffer.
+      const streaming = live && s.stream, src = streaming ? c.createMediaStreamSource(s.stream) : c.createBufferSource();
+      if (!streaming) { src.buffer = s.buf; src.loop = true; }
       const g = c.createGain(); g.gain.value = s.gain; src.connect(g);
       const node = { id: s.id, src, g };
       if (spatialMode) {
@@ -194,7 +196,7 @@ const Live = (() => {
         updateVoice(node, s.angle, s.distance ?? DIST, settings);
       } else g.connect(bus);
       if (live) { node.ana = c.createAnalyser(); node.ana.fftSize = 1024; g.connect(node.ana); }
-      src.start(0);
+      if (!streaming) src.start(0);
       return node;
     });
     return { nodes, bus, binaural, centered, reverb };
@@ -218,7 +220,7 @@ const Live = (() => {
 
   // Keep the plain-words directions in the captions ("behind you, left") in step with the head and the seats.
   function refreshDirs() {
-    people.forEach(p => { const d = document.querySelector(`.cap[data-id="${p.id}"] .dir`), w = dirWord(angleOf(p) - head); if (d && d.textContent !== w) d.textContent = w; });
+    people.forEach(p => { const d = document.querySelector(`.cap[data-id="${p.id}"] .dir`), w = whereWord(p, angleOf(p)); if (d && d.textContent !== w) d.textContent = w; });
   }
 
   function setHead(v) {
@@ -237,13 +239,14 @@ const Live = (() => {
     const dot = document.querySelector('.orbit-dot'), btn = $('#orbit-toggle');
     if (btn) btn.textContent = on ? '■  Stop orbit' : '▶  8D orbit';
     if (on) {
-      const me = people.find(p => p.id === selected); orbit.id = me.id; orbit.a0 = me.angle; orbit.t0 = performance.now();
+      const me = people.find(p => p.id === selected); if (!me) { orbit.on = false; if (btn) btn.textContent = '▶  8D orbit'; return; }
+      const rad = radiusFor(me.distance); orbit.id = me.id; orbit.a0 = me.angle; orbit.t0 = performance.now();
       if (dot) dot.hidden = false;
       const step = () => {
         if (!orbit.on) return;
         orbit.angle = wrap(orbit.a0 + (performance.now() - orbit.t0) / 8000 * 360);
         applyParams();
-        if (dot) dot.style.transform = `translate(${Math.sin(orbit.angle * Math.PI / 180) * 133}px, ${-Math.cos(orbit.angle * Math.PI / 180) * 133}px)`;
+        if (dot) dot.style.transform = `translate(${Math.sin(orbit.angle * Math.PI / 180) * rad}px, ${-Math.cos(orbit.angle * Math.PI / 180) * rad}px)`;
         orbit.raf = requestAnimationFrame(step);
       };
       step();
@@ -268,7 +271,7 @@ const Live = (() => {
     if (graph && !graph.spatial) graph.bus.gain.setTargetAtTime(monoComp, ctx.currentTime, .05);
   }
   const scheduleCalibration = () => { clearTimeout(timer); timer = setTimeout(() => playing && calibrate(), 400); };
-  const keyOf = () => JSON.stringify([spatial, source, fx, [...files].map(([k, f]) => k + f.name + f.size)]);
+  const keyOf = () => JSON.stringify([spatial, source, fx, people.map(p => p.id), [...files].map(([k, f]) => k + f.name + f.size)]);
 
   async function start() {
     if (!ctx) ctx = newContext();
@@ -307,7 +310,7 @@ const Live = (() => {
   function stop(keepContext) {
     cancelAnimationFrame(raf);
     if (graph) {
-      graph.nodes.forEach(n => { try { n.src.stop(); } catch (e) {} });
+      graph.nodes.forEach(n => { try { n.src.stop(); } catch (e) {} try { n.src.disconnect(); } catch (e) {} });
       graph.master.disconnect();
       graph.limiter.disconnect();
     }
@@ -316,6 +319,7 @@ const Live = (() => {
     document.querySelectorAll('.speaking').forEach(e => e.classList.remove('speaking'));
     document.querySelectorAll('[data-id]').forEach(e => e.style.removeProperty('--lvl'));
     ['#out-l', '#out-r'].forEach(s => { const b = $(s + ' i'); if (b) b.style.transform = 'scaleX(0)'; });
+    balance = 0; const needle = $('#balance-dot'); if (needle) needle.style.left = '50%';
     if (!keepContext) status('Stopped.');
   }
 
@@ -326,14 +330,16 @@ const Live = (() => {
     graph.nodes.forEach(n => {
       const v = level(n.ana), lvl = Math.min(1, v * 6), who = people.find(q => q.id === n.id);
       document.querySelectorAll(`[data-id="${n.id}"]`).forEach(el => { if (!el.classList.contains('meter')) { el.classList.toggle('speaking', v > .01); el.style.setProperty('--lvl', lvl.toFixed(3)); } });
-      if (who) { const dir = document.querySelector(`.cap[data-id="${n.id}"] .dir`), word = dirWord(angleOf(who) - head); if (dir && dir.textContent !== word) dir.textContent = word; }
+      if (who) { const dir = document.querySelector(`.cap[data-id="${n.id}"] .dir`), word = whereWord(who, angleOf(who)); if (dir && dir.textContent !== word) dir.textContent = word; }
       const bar = document.querySelector(`.meter[data-id="${n.id}"] i`);
       if (bar) bar.style.transform = `scaleX(${Math.max(0, Math.min(1, (dB(v) + 60) / 60))})`;
     });
     const l = level(graph.L), r = level(graph.R);
     graph.peak = Math.max(graph.peak || 0, l, r);
     [['#out-l', l], ['#out-r', r]].forEach(([s, v]) => { $(s + ' i').style.transform = `scaleX(${Math.max(0, Math.min(1, (dB(v) + 60) / 60))})`; $(s + ' b').textContent = v > 1e-4 ? dB(v).toFixed(0) + ' dB' : '-∞'; });
-    $('#out-diff').textContent = l > 1e-4 && r > 1e-4 ? `Left ear vs right ear: ${(dB(l) - dB(r)).toFixed(1)} dB` : 'Left ear vs right ear: –';
+    const gap = dB(l) - dB(r), heard = l > 1e-4 || r > 1e-4;
+    balance += ((heard ? Math.max(-1, Math.min(1, -gap / 6)) : 0) - balance) * .12;
+    const dot = $('#balance-dot'); if (dot) dot.style.left = `${50 + 46 * balance}%`; $('#out-diff').textContent = l < 1e-4 && r < 1e-4 ? 'Waiting for sound…' : Math.abs(gap) < 1.5 ? 'Balanced: both ears hear about the same' : `Louder in your ${gap > 0 ? 'LEFT' : 'RIGHT'} ear by ${Math.abs(gap).toFixed(0)} dB`;
     raf = requestAnimationFrame(loop);
   }
 
@@ -403,7 +409,7 @@ const Live = (() => {
     } catch (e) {}
   }
   function updateDistanceControl() {
-    const person = people.find(p => p.id === selected);
+    const person = people.find(p => p.id === selected); if (!person) return;
     const distance = person.distance ?? DIST;
     $('#seat-distance-label').textContent = `${person.name}’s distance`;
     $('#seat-distance').value = distance;
@@ -412,7 +418,7 @@ const Live = (() => {
   }
   function applyPreset(name) { PRESETS[name].forEach((a, i) => { if (people[i]) people[i].angle = a; }); invalidate(); draw(); }
   function moveSelected(step) {
-    const me = people.find(p => p.id === selected); let i = SEATS.reduce((best, s, k) => Math.abs(wrap(s - me.angle)) < Math.abs(wrap(SEATS[best] - me.angle)) ? k : best, 0);
+    const me = people.find(p => p.id === selected); if (!me) return; let i = SEATS.reduce((best, s, k) => Math.abs(wrap(s - me.angle)) < Math.abs(wrap(SEATS[best] - me.angle)) ? k : best, 0);
     for (let k = 0; k < SEATS.length; k++) {
       i = (i + step + SEATS.length) % SEATS.length;
       if (!people.some(p => p !== me && p.angle === SEATS[i])) { me.angle = SEATS[i]; invalidate(); draw(); return; }
@@ -501,10 +507,17 @@ const Live = (() => {
     for (let i = 0; i < n; i++) { seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0; const t = i / RATE; d[i] = (seed / 4294967296 * 2 - 1) * .35 * Math.max(0, Math.min(1, t / .02, (.7 - t) / .05)); }
     const master = ctx.createGain(); master.gain.value = .8; master.connect(outNode());
     const saved = { fx, head }; fx = name; head = 0;
-    let built; try { built = build(ctx, master, [{ id: 'probe', angle, gain: 1, buf }], true, false, effects); } finally { fx = saved.fx; head = saved.head; }
+    let built; try { built = build(ctx, master, [{ id: 'probe', angle, gain: 1, buf }], true, false); } finally { fx = saved.fx; head = saved.head; }
     built.nodes[0].src.loop = false;
     await new Promise(r => setTimeout(r, 1400));
     try { built.nodes[0].src.stop(); master.disconnect(); } catch (e) {}
+  }
+  // Back to the standard sound: all effects on, Clear strength, facing front, no orbit.
+  function resetAll() {
+    Object.assign(effects, DEFAULT_EFFECTS);
+    document.querySelectorAll('[data-effect]').forEach(b => b.setAttribute('aria-pressed', 'true'));
+    if (orbit.on) setOrbit(false);
+    fx = 'enhanced'; $('#fx-select').value = fx; setHead(0);
   }
   function setFx(name) { if (!FX[name]) return; fx = name; const sel = $('#fx-select'); if (sel) sel.value = name; save(); if (playing) start(); }
 
@@ -526,7 +539,8 @@ const Live = (() => {
       sync();
     });
     $('#seat-distance').oninput = e => {
-      people.find(p => p.id === selected).distance = Number(e.target.value);
+      const who = people.find(p => p.id === selected); if (!who) return;
+      who.distance = Number(e.target.value);
       updateDistanceControl();
       sync();
     };
@@ -552,5 +566,5 @@ const Live = (() => {
     updateDistanceControl();
   }
   document.addEventListener('DOMContentLoaded', () => { init(); report('load', { audioApi: !!(window.AudioContext || window.webkitAudioContext) }); });
-  return { sync, stop, start, selfTest, headphoneCheck, directToReverb, setHead, probe, setFx, updateDistanceControl, get head() { return head; }, get playing() { return playing; } };
+  return { sync, stop, start, selfTest, headphoneCheck, directToReverb, setHead, setOrbit, probe, setFx, resetAll, updateDistanceControl, get head() { return head; }, get playing() { return playing; } };
 })();

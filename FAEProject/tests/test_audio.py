@@ -9,6 +9,7 @@ import numpy as np
 from spatial_audio import create_app
 from spatial_audio.audio import SAMPLE_RATE, mix, read_wav, write_wav
 from spatial_audio.models import Participant
+from spatial_audio.signaling import MAX_PEERS, PEER_TIMEOUT, Rooms
 
 
 class AudioTests(unittest.TestCase):
@@ -48,6 +49,97 @@ class AudioTests(unittest.TestCase):
             read_wav(data)
 
 
+class DistanceAndFocusTests(unittest.TestCase):
+    def level(self, **kwargs):
+        participant = kwargs.pop('participant', Participant('a', 'A', 0, **kwargs))
+        return np.max(np.abs(mix([(participant, np.full(100, .1))], **self.options)))
+
+    options = {}
+
+    def test_nearer_is_louder_and_mono_ignores_distance(self):
+        near, far = self.level(distance=.75), self.level(distance=3.0)
+        self.assertGreater(near, self.level())
+        self.assertLess(far, self.level())
+        self.options = {'spatial': False}
+        self.assertAlmostEqual(self.level(distance=.75), self.level(distance=3.0))
+
+    def test_focus_boosts_one_voice_and_lowers_the_others(self):
+        a, b = Participant('a', 'A', -60), Participant('b', 'B', 60)
+        samples = np.full(100, .1)
+        plain = mix([(a, samples), (b, samples)])
+        focused = mix([(a, samples), (b, samples)], focus='a')
+        self.assertGreater(np.max(np.abs(focused[:, 0])), np.max(np.abs(plain[:, 0])) * 1.2)   # left ear carries A
+        self.assertLess(np.max(np.abs(focused[:, 1])), np.max(np.abs(plain[:, 1])))             # right ear carries B
+
+    def test_distance_is_validated(self):
+        for bad in (0, 10, float('nan')):
+            with self.assertRaises(ValueError):
+                Participant.from_dict({'id': 'a', 'angle': 0, 'distance': bad})
+        self.assertEqual(Participant.from_dict({'id': 'a', 'angle': 0}).distance, 1.5)
+
+
+class SignalingTests(unittest.TestCase):
+    def setUp(self):
+        self.now = 0.0
+        self.rooms = Rooms(clock=lambda: self.now)
+
+    def test_join_lists_earlier_peers_only(self):
+        a = self.rooms.join('t', 'Anshul')
+        b = self.rooms.join('t', 'Manan')
+        self.assertEqual(a['peers'], [])
+        self.assertEqual([p['name'] for p in b['peers']], ['Anshul'])
+
+    def test_message_reaches_only_its_target_and_needs_the_token(self):
+        a, b = self.rooms.join('t', 'A'), self.rooms.join('t', 'B')
+        self.rooms.send('t', b['id'], b['token'], a['id'], 'offer', {'sdp': 'x'})
+        got = self.rooms.poll('t', a['id'], a['token'], since=-1, wait=0)
+        self.assertEqual(got['messages'], [{'from': b['id'], 'type': 'offer', 'data': {'sdp': 'x'}}])
+        self.assertEqual(self.rooms.poll('t', b['id'], b['token'], since=-1, wait=0)['messages'], [])
+        with self.assertRaises(ValueError):
+            self.rooms.send('t', b['id'], 'wrong', a['id'], 'offer', {})
+        with self.assertRaises(ValueError):
+            self.rooms.send('t', b['id'], b['token'], a['id'], 'hack', {})
+
+    def test_leaving_and_timeout_update_the_room(self):
+        a, b = self.rooms.join('t', 'A'), self.rooms.join('t', 'B')
+        self.rooms.leave('t', b['id'], b['token'])
+        self.assertEqual(self.rooms.poll('t', a['id'], a['token'], since=-1, wait=0)['peers'][0]['name'], 'A')
+        c = self.rooms.join('t', 'C')
+        self.now += PEER_TIMEOUT - 5
+        self.rooms.poll('t', c['id'], c['token'], since=-1, wait=0)      # C keeps polling, A goes silent
+        self.now += 10
+        self.assertEqual([p['name'] for p in self.rooms.poll('t', c['id'], c['token'], since=-1, wait=0)['peers']], ['C'])
+
+    def test_rooms_are_separate_validated_and_limited(self):
+        self.rooms.join('one', 'A')
+        self.assertEqual(self.rooms.join('two', 'B')['peers'], [])
+        for bad_room, bad_name in (('bad room!', 'A'), ('', 'A'), ('ok', '   ')):
+            with self.assertRaises(ValueError):
+                self.rooms.join(bad_room, bad_name)
+        for i in range(MAX_PEERS):
+            self.rooms.join('full', f'P{i}')
+        with self.assertRaises(ValueError):
+            self.rooms.join('full', 'late')
+
+    def test_names_cannot_carry_markup(self):
+        peer = self.rooms.join('t', '<img src=x onerror=alert(1)>  Dr "Who"')
+        got = self.rooms.join('t', 'B')['peers'][0]['name']
+        self.assertNotIn('<', got + peer['id'])
+        self.assertEqual(got, 'img srcx onerroralert1 Dr Who'[:24])
+
+    def test_http_flow(self):
+        client = create_app().test_client()
+        a = client.post('/api/rtc/join', json={'room': 'http', 'name': 'A'}).json
+        b = client.post('/api/rtc/join', json={'room': 'http', 'name': 'B'}).json
+        self.assertEqual([p['name'] for p in b['peers']], ['A'])
+        sent = client.post('/api/rtc/send', json={'room': 'http', 'id': b['id'], 'token': b['token'], 'to': a['id'], 'type': 'ice', 'data': {'c': 1}})
+        self.assertEqual(sent.status_code, 200)
+        polled = client.get('/api/rtc/poll', query_string={'room': 'http', 'id': a['id'], 'token': a['token'], 'since': -1}).json
+        self.assertEqual(polled['messages'][0]['type'], 'ice')
+        self.assertEqual(client.get('/api/rtc/poll', query_string={'room': 'http', 'id': a['id'], 'token': 'no'}).status_code, 400)
+        self.assertEqual(client.post('/api/rtc/join', data='nope').status_code, 400)
+
+
 class RouteTests(unittest.TestCase):
     def setUp(self):
         self.client = create_app().test_client()
@@ -73,6 +165,25 @@ class RouteTests(unittest.TestCase):
                          {'participants': [{'id': 'a', 'angle': 0, 'volume': -1}]}):
             self.assertEqual(self.render(settings).status_code, 400)
         self.assertEqual(self.client.post('/api/mix', data={'settings': 'invalid'}).status_code, 400)
+
+    def test_distance_and_focus_reach_the_renderer(self):
+        people = [{'id': 'a', 'angle': -60, 'distance': 3}, {'id': 'b', 'angle': 60}]
+        result = self.render({'participants': people, 'focus': 'b'})
+        self.assertEqual(result.status_code, 200)
+        self.assertEqual(self.render({'participants': people, 'focus': 'nobody'}).status_code, 400)
+        self.assertEqual(self.render({'participants': [{'id': 'a', 'angle': 0, 'distance': 99}]}).status_code, 400)
+
+    def test_bundled_tracker_files_are_served(self):
+        self.assertEqual(self.client.get('/tracking-assets/face_mesh.js').status_code, 200)
+        self.assertEqual(self.client.get('/tracking-assets/face_mesh_solution_simd_wasm_bin.wasm').status_code, 200)
+        self.assertEqual(self.client.get('/tracking-assets/../__init__.py').status_code, 404)
+
+    def test_every_page_script_is_served(self):
+        page = self.client.get('/').get_data(as_text=True)
+        for name in ('app', 'live', 'listen', 'tracking', 'tune', 'demo', 'call'):
+            self.assertIn(f'/static/{name}.js', page)
+            with self.client.get(f'/static/{name}.js') as response:
+                self.assertEqual(response.status_code, 200)
 
     def test_uploaded_audio_and_invalid_file(self):
         audio = write_wav(np.zeros((480, 2)))

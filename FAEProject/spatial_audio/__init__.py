@@ -8,6 +8,7 @@ from flask import Flask, jsonify, render_template, request, send_file
 
 from .audio import SAMPLE_RATE, mix, read_wav, test_tone, write_wav
 from .models import Participant
+from .signaling import create_blueprint as signaling_blueprint
 from .tracking_assets import tracking_assets
 
 VOICES = Path(__file__).parent / "static" / "voices"
@@ -25,6 +26,7 @@ def speech_demo(person_id):
 def create_app():
     app = Flask(__name__)
     app.register_blueprint(tracking_assets)
+    app.register_blueprint(signaling_blueprint())
     app.config["MAX_CONTENT_LENGTH"] = 24 * 1024 * 1024
 
     @app.get("/")
@@ -57,6 +59,9 @@ def create_app():
             spatial = settings.get("spatial", True)
             if not isinstance(spatial, bool):
                 raise ValueError("Spatial mode must be true or false.")
+            focus = settings.get("focus")
+            if focus is not None and focus not in {p.id for p in participants}:
+                raise ValueError("Focus must be one of the participants.")
             source = settings.get("source", "tones")
             if source not in ("tones", "speech"):
                 raise ValueError("Source must be 'tones' or 'speech'.")
@@ -69,7 +74,7 @@ def create_app():
                     samples = (speech_demo(person.id) if source == "speech" else None)
                     samples = test_tone(i) if samples is None else samples
                 sources.append((person, samples))
-            result = mix(sources, spatial=spatial)
+            result = mix(sources, spatial=spatial, focus=focus)
             return send_file(io.BytesIO(write_wav(result)), mimetype="audio/wav",
                              download_name="spatial-table-mix.wav")
         except (ValueError, TypeError, KeyError, AttributeError, wave.Error, EOFError, json.JSONDecodeError) as exc:
