@@ -58,20 +58,33 @@ const Demo = (() => {
       await tween(3000, k => moveSeat(person('kabir'), 60, Math.round((3.5 - 2 * k) * 4) / 4));
       draw();
 
-      say('6 · You turn your head', 'The room stays still, so every voice swings around you. Watch the captions: “front right” becomes “in front of you”.');
+      const fx = name => $(`[data-effect="${name}"]`);
+      const setFx = (name, on) => { if (fx(name).getAttribute('aria-pressed') !== String(on)) fx(name).click(); };
+      say('6 · The room', 'First with no room: voices sound inside your head. Now watch the Room switches turn on: echoes and reverb put them out in the space.');
+      setFx('reflections', false); setFx('reverb', false);
+      await wait(4000);
+      setFx('reflections', true); setFx('reverb', true);
+      await wait(4500);
+
+      say('7 · You turn your head', 'The room stays still, so every voice swings around you. Watch the captions: “front right” becomes “in front of you”.');
       await tween(4000, k => Live.setHead(Math.round(90 * k / 5) * 5));
       await wait(1800);
       await tween(4000, k => Live.setHead(Math.round((90 - 180 * k) / 5) * 5));
       await wait(1200);
       await tween(2000, k => Live.setHead(Math.round((-90 + 90 * k) / 5) * 5));
 
+      selected = 'meera'; focusId = 'meera'; invalidate(); draw();
+      say('8 · Focus on one person', 'Meera is boosted and the others drop. This is how you follow one voice in a crowd. Look at her Focus button.');
+      await wait(6500);
+      focusId = null; invalidate(); draw();
+
       selected = 'diya'; draw();
-      say('7 · One voice circles you', 'Diya goes all the way around your head. Listen for her passing in front, at the sides and behind.');
+      say('9 · One voice circles you', 'Diya goes all the way around your head. Listen for her passing in front, at the sides and behind.');
       Live.setOrbit(true);
       await wait(9000);
       Live.setOrbit(false);
 
-      say('That is the idea', 'Every voice gets its own place, so you can follow one person in a crowd. Now try dragging someone yourself.');
+      say('That is the idea', 'Every voice gets its own place. The Live call panel does the same with real people over WebRTC. Now try dragging someone yourself.');
       await wait(4500);
     } catch (e) {
       if (!(e instanceof Stopped)) { say('The tour stopped', e.message || 'Something went wrong.'); await sleep(2500); }
@@ -79,6 +92,7 @@ const Demo = (() => {
       {
         running = false;
         Live.setOrbit(false);
+        ['reflections', 'reverb'].forEach(n => { const b = $(`[data-effect="${n}"]`); if (b && b.getAttribute('aria-pressed') !== 'true') b.click(); });
         people.forEach((p, i) => Object.assign(p, { distance: undefined }, saved.people[i]));
         selected = saved.selected; focusId = saved.focusId;
         Live.setHead(saved.head);

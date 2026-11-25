@@ -37,7 +37,7 @@ Open http://127.0.0.1:5001 and wear headphones. Everything runs on your computer
 - **Distance.** Drag a person toward You (louder, drier) or away (quieter, roomier). Distance is 0.75–3.5 m.
 - **Normal call vs Around the table.** One switch compares mono with spatial at matched loudness.
 - **Turn your head.** Drag "You", use the slider, press Q/E, or enable the webcam under More controls. The room stays still and voices move around you.
-- **Guided tour.** One-minute demo with large subtitles: four voices, normal call, around the table, a voice walking across, a voice moving away, head turn, and a voice circling you.
+- **Guided tour.** Guided tour (about 75 s) with large subtitles: four voices, normal call, around the table, a voice walking across, a voice moving away, room on/off, head turn, focus, and a voice circling you.
 - **Larger text.** Header button; everything grows by 25% for a projector or a viewer far from the screen.
 - **Algorithm switches** (More controls): HRTF, rear filtering, distance, room reflections, reverb, each on/off to hear what it adds. Strength: Subtle / Clear / Dramatic.
 - **Your own audio.** Drop WAV, MP3 or M4A onto a person. Live play accepts any length; the offline export converts to 48 kHz WAV in the browser (first 15 s).
