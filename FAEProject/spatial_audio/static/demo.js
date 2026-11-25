@@ -84,7 +84,7 @@ const Demo = (() => {
       await wait(9000);
       Live.setOrbit(false);
 
-      say('That is the idea', 'Every voice gets its own place. The Live call panel does the same with real people over WebRTC. Now try dragging someone yourself.');
+      say('That is the idea', 'Every voice gets its own place, so you can follow one person in a crowd. Now try dragging someone yourself.');
       await wait(4500);
     } catch (e) {
       if (!(e instanceof Stopped)) { say('The tour stopped', e.message || 'Something went wrong.'); await sleep(2500); }
